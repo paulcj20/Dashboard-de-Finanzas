@@ -1,0 +1,1327 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Financiero Contenedores - Ras Transport</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* Filtros */
+        .filters {
+            background: white;
+            padding: 24px 28px 28px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .filters-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .filters h3 {
+            color: #1e3a8a;
+            font-size: 18px;
+            margin: 0;
+        }
+
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 18px 22px;
+        }
+
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .filter-item label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        .filter-item input,
+        .filter-item select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            width: 100%;
+        }
+
+        .filter-item input:focus,
+        .filter-item select:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .filters-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-apply {
+            padding: 11px 26px;
+            background: #1d4ed8;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s ease, background 0.2s ease;
+            box-shadow: 0 8px 18px rgba(29, 78, 216, 0.18);
+        }
+
+        .btn-apply:hover {
+            background: #1e40af;
+            transform: translateY(-1px);
+        }
+
+        .btn-apply:active {
+            transform: translateY(0);
+        }
+
+        /* KPI Cards */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .kpi-card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            border-left: 4px solid #3b82f6;
+        }
+
+        .kpi-card.positive {
+            border-left-color: #10b981;
+        }
+
+        .kpi-card.negative {
+            border-left-color: #ef4444;
+        }
+
+        .kpi-label {
+            font-size: 13px;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .kpi-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1e3a8a;
+        }
+
+        .kpi-value.positive {
+            color: #10b981;
+        }
+
+        .kpi-value.negative {
+            color: #ef4444;
+        }
+
+        /* Charts */
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .chart-container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+
+        .chart-container h3 {
+            color: #1e3a8a;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+        }
+
+        /* Tabla */
+        .table-container {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            overflow-x: auto;
+        }
+
+        .table-container h3 {
+            color: #1e3a8a;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .table-controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .table-controls input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        th {
+            background: #f8fafc;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #1e3a8a;
+            border-bottom: 2px solid #e2e8f0;
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            min-width: 60px;
+        }
+
+        th:hover {
+            background: #e2e8f0;
+        }
+
+        th .resizer {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 5px;
+            height: 100%;
+            cursor: col-resize;
+            user-select: none;
+            z-index: 1;
+        }
+
+        th .resizer:hover {
+            background: #3b82f6;
+        }
+
+        th.sortable::after {
+            content: ' ⇅';
+            opacity: 0.3;
+        }
+
+        th.sort-asc::after {
+            content: ' ↑';
+            opacity: 1;
+        }
+
+        th.sort-desc::after {
+            content: ' ↓';
+            opacity: 1;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        tr:hover {
+            background: #f8fafc;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 16px;
+            color: #666;
+        }
+
+        .error {
+            background: #fee;
+            color: #c00;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .filters {
+                padding: 20px;
+                border-radius: 10px;
+            }
+
+            .filters-header {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filters-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
+
+            .filters-actions .btn-apply {
+                width: 100%;
+                text-align: center;
+            }
+
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .filter-grid {
+                grid-template-columns: 1fr;
+                gap: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .filters-actions {
+                justify-content: center;
+            }
+
+            .btn-apply {
+                padding-inline: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🚛 Ras Transport</h1>
+            <p>Dashboard Financiero - Operaciones de Contenedores</p>
+        </div>
+
+        <!-- Filtros -->
+        <div class="filters">
+            <div class="filters-header">
+                <h3>Filtros</h3>
+                <div class="filters-actions">
+                    <button class="btn-apply" onclick="applyFilters()">Aplicar Filtros</button>
+                </div>
+            </div>
+            <div class="filter-grid">
+                <div class="filter-item">
+                    <label>Mes</label>
+                    <select id="filterMes">
+                        <option value="Oct 25">Octubre 2025</option>
+                        <option value="Nov 25">Noviembre 2025</option>
+                        <option value="Dic 25">Diciembre 2025</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>Cliente</label>
+                    <select id="filterCliente">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>Tipo de OP</label>
+                    <select id="filterTipoOP">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label>Terciarizado</label>
+                    <select id="filterTerciarizado">
+                        <option value="">Todos</option>
+                        <option value="Si">Sí</option>
+                        <option value="No">No</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPIs -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Ingreso Total</div>
+                <div class="kpi-value" id="kpiIngreso">$0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Costo Total</div>
+                <div class="kpi-value" id="kpiCosto">$0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Margen Bruto</div>
+                <div class="kpi-value" id="kpiMargen">$0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Margen %</div>
+                <div class="kpi-value" id="kpiMargenPct">0%</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Costo por KM</div>
+                <div class="kpi-value" id="kpiCostoKm">$0</div>
+            </div>
+        </div>
+
+        <!-- Gráficos -->
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3>Evolución Mensual del Margen Bruto</h3>
+                <div class="chart-wrapper">
+                    <canvas id="chartMargenMensual"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <h3>Margen % por Cliente</h3>
+                <div class="chart-wrapper">
+                    <canvas id="chartMargenCliente"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabla de Operaciones -->
+        <div class="table-container">
+            <h3>Detalle de Operaciones</h3>
+            <div class="table-controls">
+                <input type="text" id="searchCarpeta" placeholder="Buscar por N° Carpeta...">
+                <input type="text" id="searchContenedor" placeholder="Buscar por Contenedor...">
+            </div>
+            <div id="tableWrapper">
+                <div class="loading">Cargando datos...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================================
+        // CONFIGURACIÓN: PEGA AQUÍ LA URL DE TU ENDPOINT DE GOOGLE APPS SCRIPT
+        // ============================================================================
+        // Para crear el endpoint:
+        // 1. En tu hoja de Google Sheets, ve a Extensiones > Apps Script
+        // 2. Crea una función doGet() que devuelva los datos en JSON (ver ejemplo abajo)
+        // 3. Publica como aplicación web (Implementar > Nueva implementación > Aplicación web)
+        // 4. Selecciona "Cualquier persona" en "Quién tiene acceso"
+        // 5. Copia la URL que te da y pégala aquí:
+        
+        const URL_API = 'https://script.google.com/macros/s/AKfycbyTeVfgta4PC27Xzg1b5BANqap9WsYT1jTbeyLYuUgBkrkkgLnGCdnBDcGJGmXaGYBNaA/exec';
+        
+        // Ejemplo de función doGet() para Apps Script:
+        /*
+        function doGet() {
+          const ss = SpreadsheetApp.getActiveSpreadsheet();
+          const sheet = ss.getSheetByName('G. Nov 25'); // Ajusta el nombre
+          const data = sheet.getDataRange().getValues();
+          const headers = data[0];
+          const rows = data.slice(1);
+          
+          const json = rows.map(row => {
+            let obj = {};
+            headers.forEach((header, i) => {
+              obj[header] = row[i];
+            });
+            return obj;
+          });
+          
+          return ContentService.createTextOutput(JSON.stringify(json))
+            .setMimeType(ContentService.MimeType.JSON);
+        }
+        */
+
+        // ============================================================================
+        // VARIABLES GLOBALES
+        // ============================================================================
+        let allData = []; // Datos del mes seleccionado
+        let filteredData = []; // Datos filtrados del mes seleccionado
+        let filteredHistoricalData = []; // Datos filtrados acumulados por mes
+        const historicalData = {}; // Datos normalizados por planilla
+        let currentMonth = '';
+        let chartMargenMensual = null;
+        let chartMargenCliente = null;
+
+        const MONTH_NAME_MAP = {
+            ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
+            jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12
+        };
+
+        // Convierte valores con separadores locales a números válidos
+        function toNumber(value) {
+            if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+            if (value === null || value === undefined) return 0;
+            const cleaned = value
+                .toString()
+                .trim()
+                .replace(/\s+/g, '')
+                .replace(/\./g, '')
+                .replace(',', '.');
+            const parsed = parseFloat(cleaned);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+
+        // Normaliza encabezados para hacer coincidencias robustas
+        function normalizeKey(key) {
+            if (key === null || key === undefined) return '';
+            return key
+                .toString()
+                .trim()
+                .toLowerCase()
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/[^a-z0-9]+/g, '');
+        }
+
+        function buildRowMap(row) {
+            const map = {};
+            if (!row || typeof row !== 'object') return map;
+            Object.keys(row).forEach(key => {
+                const normalized = normalizeKey(key);
+                if (normalized && map[normalized] === undefined) {
+                    map[normalized] = row[key];
+                }
+            });
+            return map;
+        }
+
+        function getValue(map, header, fallback = '') {
+            const targets = Array.isArray(header) ? header : [header];
+            for (const target of targets) {
+                const normalized = normalizeKey(target);
+                if (!normalized) continue;
+                if (Object.prototype.hasOwnProperty.call(map, normalized)) {
+                    const value = map[normalized];
+                    if (value !== undefined && value !== null && value !== '') return value;
+                }
+            }
+            return fallback;
+        }
+
+        function getNumber(map, header) {
+            return toNumber(getValue(map, header, 0));
+        }
+
+        function normalizeText(value) {
+            if (value === null || value === undefined) return '';
+            return value.toString().trim().toLowerCase();
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Cargar datos de la API usando JSONP (evita problemas de CORS)
+        // ============================================================================
+        function fetchData() {
+            const selectMes = document.getElementById('filterMes');
+            const mesSeleccionado = selectMes ? selectMes.value : '';
+            currentMonth = mesSeleccionado;
+
+            console.log('🔄 fetchData: Iniciando carga de datos para', mesSeleccionado || '(sin seleccionar)');
+            console.log('📍 URL_API:', URL_API);
+
+            if (!mesSeleccionado) {
+                console.warn('⚠️ No se ha seleccionado un mes válido.');
+                return;
+            }
+
+            requestSheetData(
+                mesSeleccionado,
+                data => processData(data, mesSeleccionado),
+                () => {
+                    document.getElementById('tableWrapper').innerHTML =
+                        '<div class="error">Error al cargar datos. Verifica la URL del endpoint.<br>URL: ' + URL_API + '</div>';
+                }
+            );
+        }
+
+        function requestSheetData(sheetName, onSuccess, onError, options = {}) {
+            const { silent = false } = options;
+            const callbackName = `jsonpCallback_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+            const finalURL = `${URL_API}?callback=${callbackName}&sheet=${encodeURIComponent(sheetName)}`;
+            const script = document.createElement('script');
+
+            console.log(`📡 requestSheetData: ${sheetName} → ${finalURL}`);
+
+            window[callbackName] = function(data) {
+                console.log(`✅ Datos recibidos (${sheetName}):`, data.length, 'filas');
+                cleanup();
+                if (onSuccess) onSuccess(data, sheetName);
+            };
+
+            function cleanup() {
+                delete window[callbackName];
+                if (script.parentNode) {
+                    script.parentNode.removeChild(script);
+                }
+            }
+
+            script.src = finalURL;
+            script.onerror = function(error) {
+                console.error(`❌ Error al cargar datos (${sheetName}):`, error);
+                cleanup();
+                if (!silent) {
+                    console.error('❌ Error crítico al cargar planilla principal.');
+                }
+                if (onError) onError(error, sheetName);
+            };
+
+            script.onload = function() {
+                console.log(`📥 Script cargado (${sheetName})`);
+            };
+
+            document.body.appendChild(script);
+        }
+
+        function getAvailableMonths() {
+            const select = document.getElementById('filterMes');
+            if (!select) return [];
+            return Array.from(select.options)
+                .map(option => option.value)
+                .filter(Boolean);
+        }
+
+        function normalizeMonthToken(name) {
+            return normalizeKey(name).slice(0, 3);
+        }
+
+        function getMonthKeyFromSheet(sheet) {
+            if (!sheet) return '';
+            const parts = sheet.toString().trim().split(/\s+/);
+            if (parts.length < 2) return '';
+            const monthToken = normalizeMonthToken(parts[0]);
+            const monthNumber = MONTH_NAME_MAP[monthToken];
+            const yearRaw = parts[parts.length - 1];
+            const yearParsed = parseInt(yearRaw, 10);
+            if (!monthNumber || isNaN(yearParsed)) return '';
+            const fullYear = yearParsed < 100 ? 2000 + yearParsed : yearParsed;
+            return `${fullYear}-${String(monthNumber).padStart(2, '0')}`;
+        }
+
+        function monthKeyToLabel(key) {
+            if (!key) return '';
+            const [yearStr, monthStr] = key.split('-');
+            const year = parseInt(yearStr, 10);
+            const monthIndex = parseInt(monthStr, 10);
+            if (!year || !monthIndex) return key;
+            const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+            return `${monthNames[monthIndex - 1]} ${year}`;
+        }
+
+        function getHistoricalRows() {
+            return Object.values(historicalData).flat();
+        }
+
+        function preloadAdditionalMonths(selectedMonth) {
+            const months = getAvailableMonths()
+                .filter(month => month && month !== selectedMonth && !historicalData[month]);
+
+            if (!months.length) return;
+
+            months.forEach(month => {
+                requestSheetData(
+                    month,
+                    data => {
+                        historicalData[month] = normalizeDataset(data, month);
+                        console.log(`📦 Planilla precargada (${month}):`, historicalData[month].length, 'registros');
+                        const filters = getActiveFilters();
+                        filteredHistoricalData = filterDataset(getHistoricalRows(), filters);
+                        renderCharts();
+                    },
+                    null,
+                    { silent: true }
+                );
+            });
+        }
+
+        function normalizeDataset(data, monthKey) {
+            return data.map(row => {
+                const map = buildRowMap(row);
+                const kilometros = getNumber(map, ['Kilometros', 'KM Promedio', 'KM']);
+                const record = {
+                    planillaMes: monthKey,
+                    carpeta: getValue(map, 'Carpeta'),
+                    factura: getValue(map, 'Factura'),
+                    fecha: getValue(map, ['Fecha de OP.', 'Fecha']),
+                    contenedor: getValue(map, ['Nro. Cont - OP.', 'Contenedor']),
+                    tipoOP: getValue(map, 'Tipo de OP.'),
+                    matricula: getValue(map, 'Matricula'),
+                    cliente: getValue(map, 'Cliente'),
+                    origen: getValue(map, 'Origen'),
+                    destino: getValue(map, 'Destino'),
+                    terciarizado: getValue(map, 'Terciarizado', 'No') || 'No',
+                    ventaFlete: getNumber(map, 'Venta Flete'),
+                    costosExtra: getNumber(map, 'Costos Extra'),
+                    detExtras: getValue(map, ['Det. Extras', 'Det Extras']),
+                    costoFletero: getNumber(map, 'Costo Fletero'),
+                    extrProveedores: getNumber(map, ['Extr. Proveedores', 'Costos OP.']),
+                    costoChofer: getNumber(map, 'Costo Chofer'),
+                    horaInicio: getValue(map, ['Hora inicio', 'Inicio Op.', 'Inicio']),
+                    horaFinal: getValue(map, ['Hora final', 'Fin Op.', 'Fin']),
+                    kilometros,
+                    litros: getNumber(map, 'Litros'),
+                    costoGasoil: getNumber(map, 'Costo Gasoil'),
+                    totalCostos: getNumber(map, 'Total de Costos'),
+                    totalVenta: getNumber(map, 'Total Venta'),
+                    get margen() {
+                        return this.totalVenta - this.totalCostos;
+                    },
+                    get margenPct() {
+                        return this.totalVenta > 0 ? (this.margen / this.totalVenta * 100) : 0;
+                    }
+                };
+
+                record.horas = computeHoras(record);
+                return record;
+            });
+        }
+
+        function parseTime(value) {
+            if (!value) return null;
+            if (value instanceof Date && !isNaN(value.getTime())) return value;
+            const str = value.toString().trim();
+            if (!str) return null;
+
+            const timeMatch = str.match(/^\s*(\d{1,2})(?::(\d{2}))?\s*$/);
+            if (timeMatch) {
+                const hours = parseInt(timeMatch[1], 10);
+                const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+                if (isNaN(hours) || hours < 0 || hours > 23) return null;
+                if (isNaN(minutes) || minutes < 0 || minutes > 59) return null;
+                const date = new Date();
+                date.setHours(hours, minutes, 0, 0);
+                return date;
+            }
+
+            const date = new Date(str);
+            return isNaN(date.getTime()) ? null : date;
+        }
+
+        function computeHoras(row) {
+            if (!row) return '';
+
+            const terciarizadoKey = normalizeKey(row.terciarizado);
+            if (terciarizadoKey === 'si') return 'N/A';
+
+            const inicio = parseTime(row.horaInicio);
+            const fin = parseTime(row.horaFinal);
+            if (!inicio || !fin) return '';
+
+            let diffMs = fin.getTime() - inicio.getTime();
+            if (diffMs < 0) {
+                diffMs += 24 * 60 * 60 * 1000;
+            }
+
+            const hours = diffMs / (60 * 60 * 1000);
+            return hours.toFixed(1);
+        }
+
+        function processData(data, monthKey) {
+            try {
+                console.log('🔧 processData: Procesando', data.length, 'registros para', monthKey);
+                
+                // Debug: Ver los campos disponibles
+                if (data.length > 0) {
+                    console.log('📋 Campos disponibles:', Object.keys(data[0]));
+                    console.log('📋 Primera fila completa:', data[0]);
+                }
+                
+                const normalized = normalizeDataset(data, monthKey);
+                historicalData[monthKey] = normalized;
+                allData = normalized;
+
+                console.log('📊 Datos normalizados:', allData.length, 'registros');
+                console.log('🚗 Primeros 3 registros con origen/km:', allData.slice(0, 3).map(r => ({
+                    carpeta: r.carpeta,
+                    origen: r.origen,
+                    km: r.kilometros
+                })));
+                
+                // Inicializar filtros con opciones únicas
+                populateFilters();
+                
+                // Aplicar filtros iniciales (todos los datos)
+                applyFilters();
+
+                // Precargar otras planillas para la gráfica mensual
+                preloadAdditionalMonths(monthKey);
+                
+                console.log('✅ Dashboard cargado exitosamente para', monthKey);
+                
+            } catch (error) {
+                console.error('❌ Error en processData:', error);
+                document.getElementById('tableWrapper').innerHTML = 
+                    `<div class="error">Error al procesar datos: ${error.message}</div>`;
+            }
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Poblar selectores de filtros con opciones únicas
+        // ============================================================================
+        function populateFilters() {
+            // Limpiar selectores existentes
+            const selectCliente = document.getElementById('filterCliente');
+            selectCliente.innerHTML = '<option value="">Todos</option>';
+            
+            const selectTipoOP = document.getElementById('filterTipoOP');
+            selectTipoOP.innerHTML = '<option value="">Todos</option>';
+            
+            const selectTerciarizado = document.getElementById('filterTerciarizado');
+            selectTerciarizado.value = '';
+            
+            // Clientes únicos
+            const clientes = [...new Set(allData.map(d => d.cliente))].filter(c => c).sort();
+            clientes.forEach(cliente => {
+                const option = document.createElement('option');
+                option.value = cliente;
+                option.textContent = cliente;
+                selectCliente.appendChild(option);
+            });
+
+            // Tipos de OP únicos
+            const tiposOP = [...new Set(allData.map(d => d.tipoOP))].filter(t => t).sort();
+            tiposOP.forEach(tipo => {
+                const option = document.createElement('option');
+                option.value = tipo;
+                option.textContent = tipo;
+                selectTipoOP.appendChild(option);
+            });
+        }
+
+        function getActiveFilters() {
+            return {
+                cliente: document.getElementById('filterCliente').value,
+                tipoOP: document.getElementById('filterTipoOP').value,
+                terciarizado: document.getElementById('filterTerciarizado').value,
+                searchCarpeta: normalizeText(document.getElementById('searchCarpeta')?.value),
+                searchContenedor: normalizeText(document.getElementById('searchContenedor')?.value)
+            };
+        }
+
+        function matchesFilters(row, filters) {
+            if (filters.cliente && row.cliente !== filters.cliente) return false;
+            if (filters.tipoOP && row.tipoOP !== filters.tipoOP) return false;
+            if (filters.terciarizado && row.terciarizado !== filters.terciarizado) return false;
+            if (filters.searchCarpeta && !normalizeText(row.carpeta).includes(filters.searchCarpeta)) return false;
+            if (filters.searchContenedor && !normalizeText(row.contenedor).includes(filters.searchContenedor)) return false;
+            return true;
+        }
+
+        function filterDataset(dataset, filters) {
+            return dataset
+                .filter(row => matchesFilters(row, filters));
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Aplicar filtros a los datos
+        // ============================================================================
+        function applyFilters() {
+            const filters = getActiveFilters();
+            filteredData = filterDataset(allData, filters);
+            filteredHistoricalData = filterDataset(getHistoricalRows(), filters);
+
+            // Actualizar toda la interfaz
+            calculateKPIs();
+            renderCharts();
+            renderTable();
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Calcular KPIs en base a datos filtrados
+        // ============================================================================
+        function calculateKPIs() {
+            const ingresoTotal = filteredData.reduce((sum, row) => sum + row.totalVenta, 0);
+            const costoTotal = filteredData.reduce((sum, row) => sum + row.totalCostos, 0);
+            const margenBruto = ingresoTotal - costoTotal;
+            const margenPct = ingresoTotal > 0 ? (margenBruto / ingresoTotal * 100) : 0;
+            
+            // Solo contar KM de operaciones que realmente tienen KM > 0
+            const totalKm = filteredData.reduce((sum, row) => {
+                return sum + (row.kilometros > 0 ? row.kilometros : 0);
+            }, 0);
+            const costoKm = totalKm > 0 ? (costoTotal / totalKm) : 0;
+            
+            // Debug detallado
+            console.log('💰 KPIs:', {
+                registros: filteredData.length,
+                costoTotal: costoTotal,
+                totalKm: totalKm,
+                costoKm: costoKm,
+                ejemploKm: filteredData.slice(0, 5).map(r => r.kilometros),
+                registrosConKm: filteredData.filter(r => r.kilometros > 0).length
+            });
+
+            // Actualizar UI
+            document.getElementById('kpiIngreso').textContent = formatCurrency(ingresoTotal);
+            document.getElementById('kpiCosto').textContent = formatCurrency(costoTotal);
+            
+            const margenEl = document.getElementById('kpiMargen');
+            margenEl.textContent = formatCurrency(margenBruto);
+            margenEl.className = 'kpi-value ' + (margenBruto >= 0 ? 'positive' : 'negative');
+            
+            const margenPctEl = document.getElementById('kpiMargenPct');
+            margenPctEl.textContent = margenPct.toFixed(1) + '%';
+            margenPctEl.className = 'kpi-value ' + (margenPct >= 0 ? 'positive' : 'negative');
+            
+            document.getElementById('kpiCostoKm').textContent = formatCurrency(costoKm, 2);
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Renderizar gráficos con Chart.js
+        // ============================================================================
+        function renderCharts() {
+            renderMargenMensualChart(filteredHistoricalData);
+            renderMargenClienteChart();
+        }
+
+        // Gráfico de líneas: Evolución mensual del margen bruto
+        function renderMargenMensualChart(dataset) {
+            const source = Array.isArray(dataset) && dataset.length ? dataset : filteredData;
+            const margenPorMes = {};
+            
+            source.forEach(row => {
+                const referenceMonth = row.planillaMes || currentMonth;
+                let mesKey = getMonthKeyFromSheet(referenceMonth);
+
+                if (!mesKey) {
+                    const date = parseDate(row.fecha, referenceMonth);
+                    if (date) {
+                        mesKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                    }
+                }
+
+                if (!mesKey) return;
+
+                if (!margenPorMes[mesKey]) {
+                    margenPorMes[mesKey] = { ingreso: 0, costo: 0 };
+                }
+
+                margenPorMes[mesKey].ingreso += row.totalVenta;
+                margenPorMes[mesKey].costo += row.totalCostos;
+            });
+
+            const meses = Object.keys(margenPorMes).sort();
+            const margenes = meses.map(mes => margenPorMes[mes].ingreso - margenPorMes[mes].costo);
+            const labels = meses.map(monthKeyToLabel);
+
+            // Destruir gráfico anterior si existe
+            if (chartMargenMensual) {
+                chartMargenMensual.destroy();
+            }
+
+            const ctx = document.getElementById('chartMargenMensual').getContext('2d');
+            chartMargenMensual = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Margen Bruto (USD)',
+                        data: margenes,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Gráfico de barras: Margen % por cliente
+        function renderMargenClienteChart() {
+            // Agrupar datos por cliente
+            const margenPorCliente = {};
+            
+            filteredData.forEach(row => {
+                if (!row.cliente) return;
+                
+                if (!margenPorCliente[row.cliente]) {
+                    margenPorCliente[row.cliente] = { ingreso: 0, costo: 0 };
+                }
+                
+                margenPorCliente[row.cliente].ingreso += row.totalVenta;
+                margenPorCliente[row.cliente].costo += row.totalCostos;
+            });
+
+            // Calcular margen % por cliente y ordenar
+            const clientes = Object.keys(margenPorCliente).map(cliente => ({
+                nombre: cliente,
+                margenPct: margenPorCliente[cliente].ingreso > 0 
+                    ? ((margenPorCliente[cliente].ingreso - margenPorCliente[cliente].costo) / margenPorCliente[cliente].ingreso * 100)
+                    : 0
+            })).sort((a, b) => b.margenPct - a.margenPct).slice(0, 10); // Top 10
+
+            // Destruir gráfico anterior si existe
+            if (chartMargenCliente) {
+                chartMargenCliente.destroy();
+            }
+
+            const ctx = document.getElementById('chartMargenCliente').getContext('2d');
+            chartMargenCliente = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: clientes.map(c => c.nombre),
+                    datasets: [{
+                        label: 'Margen %',
+                        data: clientes.map(c => c.margenPct),
+                        backgroundColor: clientes.map(c => c.margenPct >= 0 ? '#10b981' : '#ef4444')
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return value + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Renderizar tabla de operaciones
+        // ============================================================================
+        let currentSort = { column: null, direction: 'asc' };
+
+        function renderTable() {
+            const wrapper = document.getElementById('tableWrapper');
+            
+            if (filteredData.length === 0) {
+                wrapper.innerHTML = '<div class="loading">No hay datos que coincidan con los filtros</div>';
+                return;
+            }
+
+            // Ordenar datos si hay una columna seleccionada
+            let sortedData = [...filteredData];
+            if (currentSort.column) {
+                sortedData.sort((a, b) => {
+                    let valA = a[currentSort.column];
+                    let valB = b[currentSort.column];
+                    
+                    if (typeof valA === 'string') valA = valA.toLowerCase();
+                    if (typeof valB === 'string') valB = valB.toLowerCase();
+                    
+                    if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+                    if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+
+            const html = `
+                <table id="operationsTable">
+                    <thead>
+                        <tr>
+                            <th class="sortable" onclick="sortTable('fecha')">Fecha<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('carpeta')">N° Carpeta<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('contenedor')">Contenedor<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('cliente')">Cliente<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('origen')">Origen<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('destino')">Destino<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('tipoOP')">Tipo OP<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('terciarizado')">Terciarizado<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('totalVenta')">Ingreso<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('totalCostos')">Costo<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('margen')">Margen<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('margenPct')">Margen %<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('horas')">Horas<div class="resizer"></div></th>
+                            <th class="sortable" onclick="sortTable('kilometros')">KM<div class="resizer"></div></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${sortedData.map(row => `
+                            <tr>
+                                <td>${formatDate(row.fecha, row.planillaMes || currentMonth)}</td>
+                                <td>${row.carpeta}</td>
+                                <td>${row.contenedor}</td>
+                                <td>${row.cliente}</td>
+                                <td>${row.origen}</td>
+                                <td>${row.destino}</td>
+                                <td>${row.tipoOP}</td>
+                                <td>${row.terciarizado}</td>
+                                <td>${formatCurrency(row.totalVenta)}</td>
+                                <td>${formatCurrency(row.totalCostos)}</td>
+                                <td style="color: ${row.margen >= 0 ? '#10b981' : '#ef4444'}">
+                                    ${formatCurrency(row.margen)}
+                                </td>
+                                <td style="color: ${row.margenPct >= 0 ? '#10b981' : '#ef4444'}">
+                                    ${row.margenPct.toFixed(1)}%
+                                </td>
+                                <td>${row.horas}</td>
+                                <td>${normalizeKey(row.terciarizado) === 'si' ? 'N/A' : row.kilometros.toFixed(0)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            wrapper.innerHTML = html;
+            
+            // Inicializar resize de columnas
+            initColumnResize();
+            
+            // Actualizar indicadores de ordenamiento
+            document.querySelectorAll('th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+            });
+            
+            if (currentSort.column) {
+                const th = document.querySelector(`th[onclick="sortTable('${currentSort.column}')"]`);
+                if (th) {
+                    th.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+                }
+            }
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Inicializar resize de columnas
+        // ============================================================================
+        function initColumnResize() {
+            const table = document.getElementById('operationsTable');
+            if (!table) return;
+            
+            const ths = table.querySelectorAll('th');
+            
+            ths.forEach(th => {
+                const resizer = th.querySelector('.resizer');
+                if (!resizer) return;
+                
+                let startX, startWidth;
+                
+                resizer.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startX = e.pageX;
+                    startWidth = th.offsetWidth;
+                    
+                    document.addEventListener('mousemove', handleMouseMove);
+                    document.addEventListener('mouseup', handleMouseUp);
+                });
+                
+                function handleMouseMove(e) {
+                    const width = startWidth + (e.pageX - startX);
+                    if (width > 50) {
+                        th.style.width = width + 'px';
+                    }
+                }
+                
+                function handleMouseUp() {
+                    document.removeEventListener('mousemove', handleMouseMove);
+                    document.removeEventListener('mouseup', handleMouseUp);
+                }
+            });
+        }
+
+        // ============================================================================
+        // FUNCIÓN: Ordenar tabla por columna
+        // ============================================================================
+        function sortTable(column) {
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+            renderTable();
+        }
+
+        // ============================================================================
+        // FUNCIONES AUXILIARES: Formateo
+        // ============================================================================
+        function formatCurrency(value, decimals = 0) {
+            const numericValue = toNumber(value);
+            return '$' + numericValue.toLocaleString('en-US', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals
+            });
+        }
+
+        function parseDate(value, referenceMonth) {
+            if (!value) return null;
+            if (value instanceof Date && !isNaN(value.getTime())) return value;
+
+            if (typeof value === 'number') {
+                const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+                const parsed = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+                return isNaN(parsed.getTime()) ? null : parsed;
+            }
+
+            const str = value.toString().trim();
+            if (!str) return null;
+
+            const isoLike = str.replace(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})(.*)$/,
+                (match, d, m, y, rest) => `${y}-${m}-${d}${rest}`);
+            const parsed = new Date(isoLike);
+            if (!isNaN(parsed.getTime())) return parsed;
+
+            const parts = str.split(/[\/.-]/).filter(Boolean);
+            if (parts.length === 3) {
+                const [first, second, third] = parts.map(Number);
+                if (third > 999) {
+                    const day = first;
+                    const month = second - 1;
+                    const year = third;
+                    const alt = new Date(year, month, day);
+                    return isNaN(alt.getTime()) ? null : alt;
+                }
+            }
+
+            if (parts.length === 2) {
+                const [day, month] = parts.map(Number);
+                if (!isNaN(day) && !isNaN(month)) {
+                    let year = new Date().getFullYear();
+                    let refMonthNumber = null;
+
+                    if (referenceMonth) {
+                        const key = getMonthKeyFromSheet(referenceMonth) || referenceMonth;
+                        if (key && key.includes('-')) {
+                            const [yearStr, monthStr] = key.split('-');
+                            const parsedYear = parseInt(yearStr, 10);
+                            const parsedMonth = parseInt(monthStr, 10);
+                            if (!isNaN(parsedYear)) year = parsedYear;
+                            if (!isNaN(parsedMonth)) refMonthNumber = parsedMonth;
+                        }
+                    }
+
+                    let monthIndex = month - 1;
+                    if (isNaN(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+                        monthIndex = refMonthNumber !== null ? refMonthNumber - 1 : 0;
+                    }
+
+                    if (refMonthNumber !== null) {
+                        if (monthIndex === 11 && refMonthNumber === 1) {
+                            year -= 1; // fecha de diciembre para planilla de enero
+                        } else if (monthIndex === 0 && refMonthNumber === 12) {
+                            year += 1; // fecha de enero para planilla de diciembre
+                        } else if (monthIndex !== refMonthNumber - 1) {
+                            // Si la fecha no coincide con la planilla, mantenemos el año de referencia
+                            monthIndex = refMonthNumber - 1;
+                        }
+                    }
+
+                    const candidate = new Date(year, monthIndex, day);
+                    if (!isNaN(candidate.getTime())) {
+                        return candidate;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        function formatDate(dateStr, referenceMonth) {
+            const date = parseDate(dateStr, referenceMonth);
+            if (!date) return '';
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            return `${day}/${month}`;
+        }
+
+        // ============================================================================
+        // EVENT LISTENERS: Búsquedas en tiempo real y cambio de mes
+        // ============================================================================
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('searchCarpeta').addEventListener('input', applyFilters);
+            document.getElementById('searchContenedor').addEventListener('input', applyFilters);
+            document.getElementById('filterMes').addEventListener('change', () => {
+                console.log('🔄 Cambio de mes detectado, recargando datos...');
+                // Limpiar búsquedas de texto
+                document.getElementById('searchCarpeta').value = '';
+                document.getElementById('searchContenedor').value = '';
+                // Recargar datos del nuevo mes
+                fetchData();
+            });
+        });
+
+        // ============================================================================
+        // INICIALIZACIÓN: Cargar datos al iniciar
+        // ============================================================================
+        fetchData();
+    </script>
+</body>
+</html>

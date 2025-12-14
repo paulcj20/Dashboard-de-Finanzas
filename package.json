@@ -1,0 +1,16 @@
+{
+  "name": "appscript-cita",
+  "version": "1.0.0",
+  "description": "Edicion de appscript",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:planillas": "node ./scripts/generate-planillas.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/google-apps-script": "^2.0.7",
+    "git": "^0.1.5"
+  }
+}

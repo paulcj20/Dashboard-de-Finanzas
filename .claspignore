@@ -1,0 +1,13 @@
+# Ignora lo que NO quieres subir. Por defecto, no ignores Planillas.
+# Ignora dependencias locales y configuraciones comunes
+node_modules/**
+**/*.map
+**/.git/**
+**/.gitignore
+**/.vscode/**
+**/.DS_Store
+**/Thumbs.db
+scripts/**
+
+# Si quisieras excluir Planillas, sería con:
+#!Planillas/**
