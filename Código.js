@@ -1,1049 +1,1147 @@
-
-  function normalizeKey_(s) {
-    return s
-      ? s.toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') // quitar acentos
-          .replace(/\./g, '') // quitar puntos
-          .replace(/\s+/g, ' ') // espacios simples
-          .trim()
-      : '';
-  }
-
-  function onEdit(e) {
-    const sheet = e.range.getSheet();
-    const row = e.range.getRow();
-    if (row < 2) return;
-
-    Logger.log(`=== onEdit INICIO: fila=${row}, columna=${e.range.getColumn()} ===`);
-
-    try {
-      // === Headers y columnas dinámicas ===
-      const headers = sheet.getRange(1, 2, 1, sheet.getLastColumn() - 1)
-        .getValues()[0].map(h => h.toString().trim().toLowerCase());
-
-      const headersNorm = headers.map(normalizeKey_);
-      const getCol = name => {
-        const idx = headersNorm.indexOf(normalizeKey_(name));
-        if (idx === -1) throw new Error(`Columna no encontrada: "${name}"`);
-        return idx + 2;
-      };
-
-      const contenedorCol = getCol("contenedor");
-      const finOpCol = getCol("fin op.");
-      const enviadoCol = getCol("enviado");
-      const carpetaCol = getCol("carpeta");
-      const choferCol = getCol("chofer");
-      const fleteroCol = getCol("fletero");
-      const depositoDevCol = getCol("deposito dev.");
-      const observacionesCol = getCol("peones/verif/etc");
-      const inicioOpCol = getCol("inicio op.");
-      const estadoCol = getCol("estado");
-      const infoChoferCol = getCol("infochofer");
-      const camionCol = getCol("camion");
-      const aranaCol = getCol("araña/chata");
-      const duaCol = getCol("dua");
-    let tipoOpCol = -1;
-    try { tipoOpCol = getCol("tipo de op"); } catch (e) { try { tipoOpCol = getCol("operador"); } catch (e2) {} }
-
-      const lastRow = sheet.getLastRow();
-      const data = sheet.getRange(2, 2, lastRow - 1, headers.length).getValues();
-
-      // === Parte 2c: Numeración para Carga Suelta al editar "Tipo de OP" ===
-      if (tipoOpCol > 0 && e.range.getColumn() === tipoOpCol) {
-        const tipoValEdit = (typeof e.value !== 'undefined') ? e.value : sheet.getRange(row, tipoOpCol).getValue();
-        const tipoValNorm = normalizeKey_(tipoValEdit);
-        if (tipoValNorm === 'carga suelta') {
-          const carpetaVal = sheet.getRange(row, carpetaCol).getValue().toString().trim();
-          const contActual = sheet.getRange(row, contenedorCol).getValue().toString().trim();
-          if (!carpetaVal) {
-            Logger.log(`CargaSuelta: Carpeta vacía en fila ${row}; no se puede asignar número.`);
-          } else if (contActual) {
-            Logger.log(`CargaSuelta: Ya hay un identificador en Contenedor ("${contActual}"), no se reasigna. Row=${row}`);
-          } else {
-            // Buscar opciones existentes para esta Carpeta
-            const opciones = getCargaSueltaOptions_(data, carpetaCol, tipoOpCol, contenedorCol, choferCol, carpetaVal);
-            const siguiente = getNextCargaSueltaId_(opciones, carpetaVal);
-            if (opciones.length === 0) {
-              // Asignación automática si no hay existentes (sin diálogo)
-              sheet.getRange(row, contenedorCol).setValue(siguiente);
-              Logger.log(`CargaSuelta: No había existentes. Asignado automático: ${siguiente} (Row=${row})`);
-            } else {
-              // Hay opciones existentes: dejar nota para usar el menú
-              sheet.getRange(row, contenedorCol).setNote('Usa menú Carga Suelta > Asignar N° para elegir o crear nuevo');
-              Logger.log(`CargaSuelta: Existen opciones (${opciones.length}). Solicitar selección vía menú. Carpeta=${carpetaVal}`);
-            }
-          }
-        }
-      }
-      // === Parte 2d: Si se edita Carpeta y ya es Carga Suelta sin identificador, ofrecer asignación ===
-      if (e.range.getColumn() === carpetaCol && tipoOpCol > 0) {
-        const tipoVal = normalizeKey_(sheet.getRange(row, tipoOpCol).getValue());
-        if (tipoVal === 'carga suelta') {
-          const carpetaVal = sheet.getRange(row, carpetaCol).getValue().toString().trim();
-          const contActual = sheet.getRange(row, contenedorCol).getValue().toString().trim();
-          if (carpetaVal && !contActual) {
-            const opciones = getCargaSueltaOptions_(data, carpetaCol, tipoOpCol, contenedorCol, choferCol, carpetaVal);
-            const siguiente = getNextCargaSueltaId_(opciones, carpetaVal);
-            if (opciones.length === 0) {
-              // Asignación automática si no hay existentes (sin diálogo)
-              sheet.getRange(row, contenedorCol).setValue(siguiente);
-              Logger.log(`CargaSuelta[CarpetaEdit]: Asignado automático ${siguiente}`);
-            } else {
-              // Hay opciones existentes: dejar nota para usar el menú
-              sheet.getRange(row, contenedorCol).setNote('Usa menú Carga Suelta > Asignar N° para elegir o crear nuevo');
-              Logger.log(`CargaSuelta[CarpetaEdit]: Opciones existentes (${opciones.length}). Solicitar selección vía menú.`);
-            }
-          }
-        }
-      }
-
-      // === Parte 1: Formatear contenedor ===
-      if (e.range.getColumn() === contenedorCol) {
-        let val = e.range.getValue();
-        if (typeof val === "string") val = val.trim().replace(/\s+/g, "").toUpperCase();
-        if (/^([A-Z]{4})(\d{6})(\d)$/.test(val) && !/^([A-Z]{4})-\d{6}-\d$/.test(val)) {
-          e.range.setValue(val.replace(/^([A-Z]{4})(\d{6})(\d)$/, "$1-$2-$3"));
-        }
-      }
-
-      // === Parte 2a: Si se editó contenedor o DUA y carpeta vacía ===
-      const columnasClave = [contenedorCol, duaCol];
-      if (columnasClave.includes(e.range.getColumn())) {
-        const carpetaActual = sheet.getRange(row, carpetaCol).getValue().toString().trim();
-        if (!carpetaActual) {
-          const valCont = sheet.getRange(row, contenedorCol).getValue().toString().trim().toLowerCase();
-          const valDua = sheet.getRange(row, duaCol).getValue().toString().trim().toLowerCase();
-
-          for (let i = 0; i < data.length; i++) {
-            const filaData = data[i];
-            const filaRow = i + 2;
-            if (filaRow === row) continue;
-            const compCont = filaData[contenedorCol - 2].toString().trim().toLowerCase();
-            const compDua = filaData[duaCol - 2].toString().trim().toLowerCase();
-            const carpeta = filaData[carpetaCol - 2];
-            if ((valCont && valCont === compCont) || (valDua && valDua === compDua)) {
-              if (carpeta) {
-                sheet.getRange(row, carpetaCol).setValue(carpeta);
-                break;
-              }
-            }
-          }
-        }
-      }
-
-      // === Parte 2b: Si se edita carpeta ===
-      if (e.range.getColumn() === carpetaCol) {
-        const nuevaCarpeta = e.range.getValue().toString().trim();
-        if (nuevaCarpeta) {
-          const valCont = sheet.getRange(row, contenedorCol).getValue().toString().trim().toLowerCase();
-          const valDua = sheet.getRange(row, duaCol).getValue().toString().trim().toLowerCase();
-          for (let i = 0; i < data.length; i++) {
-            const filaData = data[i];
-            const filaRow = i + 2;
-            if (filaRow === row) continue;
-            const compCont = filaData[contenedorCol - 2].toString().trim().toLowerCase();
-            const compDua = filaData[duaCol - 2].toString().trim().toLowerCase();
-            const carpetaFila = filaData[carpetaCol - 2].toString().trim();
-            if (!carpetaFila && ((valCont && valCont === compCont) || (valDua && valDua === compDua))) {
-              sheet.getRange(filaRow, carpetaCol).setValue(nuevaCarpeta);
-            }
-          }
-        }
-      }
-
-      // === Parte 3: Completar matrículas desde infoChofer ===
-      if (e.range.getColumn() === choferCol) {
-        const choferVal = sheet.getRange(row, choferCol).getValue().toString().trim().toLowerCase();
-        for (let i = 0; i < data.length; i++) {
-          const filaData = data[i];
-          const filaRow = i + 2;
-          if (filaRow === row) continue;
-          const infoChoferVal = filaData[infoChoferCol - 2].toString().trim().toLowerCase();
-          if (choferVal && choferVal === infoChoferVal) {
-            const camionVal = filaData[camionCol - 2];
-            const aranaVal = filaData[aranaCol - 2];
-            sheet.getRange(row, getCol("matricula 1")).setValue(camionVal);
-            sheet.getRange(row, getCol("matricula 2")).setValue(aranaVal);
-            break;
-          }
-        }
-      }
-
-      // === Parte 4: Depósito Mayabel ===
-      // Solo agregar "devolucion" cuando se EDITA la columna "Deposito Dev." y es "mayabel"
-      // No forzar si el usuario borra el campo Peones/Verif/Etc
-      if (e.range.getColumn() === depositoDevCol) {
-        const depositoVal = sheet.getRange(row, depositoDevCol).getValue().toString().trim().toLowerCase();
-        if (depositoVal === "mayabel") {
-          const obsCell = sheet.getRange(row, observacionesCol);
-          const currentText = obsCell.getValue().toString();
-          if (!currentText.toLowerCase().includes("devolucion")) {
-            obsCell.setValue(currentText ? `${currentText} devolucion` : "devolucion");
-            Logger.log(`onEdit: Agregado "devolucion" en Peones/Verif/Etc por Mayabel. Row=${row}`);
-          }
-        }
-      }
-
-    // === Parte 5: Cambiar estado
-    // Regla: NUNCA recalcular Estado cuando se está editando la propia columna Estado.
-    // Además, si el estado ya es 'Completado', no tocarlo bajo ninguna circunstancia.
-    // Solo recalcular cuando se editan las columnas relevantes: Chofer, Fletero, Inicio Op., Fin Op.
-    const editedCol = e.range.getColumn();
-    const columnasRelevantesEstado = [choferCol, fleteroCol, inicioOpCol, finOpCol];
-    
-    if (columnasRelevantesEstado.includes(editedCol)) {
-      const estadoCell = sheet.getRange(row, estadoCol);
-      const estadoActual = estadoCell.getValue().toString().trim();
-      const estadoActualNorm = normalizeKey_(estadoActual);
-      const inicioOpVal = sheet.getRange(row, inicioOpCol).getValue().toString().trim();
-      const finOpVal = sheet.getRange(row, finOpCol).getValue();
-      const choferVal = sheet.getRange(row, choferCol).getValue().toString().trim();
-      const fleteroVal = sheet.getRange(row, fleteroCol).getValue().toString().trim();
-      
-      Logger.log(`onEdit: Parte 5 - Columna relevante editada (${editedCol}). Verificando Estado...`);
-      
-      if (!isEstadoCompletado_(estadoActual)) {
-        // Solo recalcular si NO es Completado/Completo/etc.
-        if (finOpVal) {
-          estadoCell.setValue("Finalizado");
-          Logger.log(`onEdit: Estado auto-> Finalizado por Fin Op. Row=${row}`);
-        } else if (inicioOpVal) {
-          estadoCell.setValue("En curso");
-          Logger.log(`onEdit: Estado auto-> En curso por Inicio Op. Row=${row}`);
-        } else if ((choferVal || fleteroVal) && !["asignado", "en curso", "finalizado"].includes(estadoActualNorm)) {
-          estadoCell.setValue("Asignado");
-          Logger.log(`onEdit: Estado auto-> Asignado por chofer/fletero. Row=${row}`);
-        }
-      } else {
-        Logger.log(`onEdit: Estado es Completado ("${estadoActual}"), no se modifica. Row=${row}`);
-      }
-    }      // === Parte 6: Enviar a G cuando Estado cambia a "Completo" ===
-      // Solo ejecutamos si se editó la columna Estado
-      Logger.log(`onEdit: Verificando envío - columna=${e.range.getColumn()}, estadoCol=${estadoCol}, match=${e.range.getColumn() === estadoCol}`);
-      if (e.range.getColumn() === estadoCol) {
-        const estadoEdit = (typeof e.value !== 'undefined')
-          ? e.value.toString().trim()
-          : sheet.getRange(row, estadoCol).getValue().toString().trim();
-        
-        Logger.log(`onEdit: Estado editado="${estadoEdit}" en fila ${row}`);
-        
-        if (isEstadoCompletado_(estadoEdit)) {
-          Logger.log(`onEdit: Estado reconocido como Completo/Completado. Iniciando envío en bloque.`);
-          // Determinar número de OP: usamos la columna Contenedor (o CS id)
-          const opNumber = sheet.getRange(row, contenedorCol).getValue().toString().trim();
-          if (!opNumber) {
-            Logger.log(`onEdit: No hay N° de OP en Contenedor; no se puede enviar en bloque. Row=${row}`);
-          } else {
-            Logger.log(`onEdit: N° de OP encontrado: "${opNumber}". Buscando todas las filas con este N°...`);
-            SpreadsheetApp.flush();
-            
-            // OPTIMIZACIÓN: Leer todos los datos una sola vez
-            const allRows = sheet.getLastRow();
-            const rangeData = sheet.getRange(2, contenedorCol, allRows - 1, 1).getValues(); // Solo columna Contenedor
-            const enviadoData = sheet.getRange(2, enviadoCol, allRows - 1, 1).getValues(); // Solo columna Enviado
-            
-            const filasParaEnviar = [];
-            const opLower = opNumber.toLowerCase();
-            
-            // Identificar filas que cumplen condiciones
-            for (let i = 0; i < rangeData.length; i++) {
-              const r = i + 2; // Fila real en la hoja
-              const contVal = rangeData[i][0].toString().trim();
-              if (!contVal) continue;
-              if (contVal.toLowerCase() !== opLower) continue;
-              const enviadoVal = enviadoData[i][0].toString().trim().toLowerCase();
-              if (enviadoVal === 'enviado') {
-                Logger.log(`onEdit: Fila ${r} ya marcada Enviado, se omite.`);
-                continue;
-              }
-              filasParaEnviar.push(r);
-            }
-            
-            Logger.log(`onEdit: Encontradas ${filasParaEnviar.length} filas para enviar.`);
-            
-            // Enviar cada fila
-            let count = 0;
-            for (const r of filasParaEnviar) {
-              try {
-                Logger.log(`onEdit: Enviando fila ${r}...`);
-                const res = sendRowToG_(sheet, r, getCol, headers);
-                count++;
-                Logger.log(`onEdit: ✓ Fila ${r} enviada a G.${sheet.getName()} (nueva fila ${res.filaFinal})`);
-              } catch (errSend) {
-                Logger.log(`onEdit: ✗ Error enviando fila ${r}: ${errSend.message}`);
-                console.error(errSend);
-              }
-            }
-            Logger.log(`onEdit: === RESUMEN: Enviadas ${count} filas para OP="${opNumber}" ===`);
-          }
-        } else {
-          Logger.log(`onEdit: Estado "${estadoEdit}" no es Completo/Completado. No se envía.`);
-        }
-      }
-
-    } catch (error) {
-      Logger.log("Error onEdit: " + error.message);
-      Logger.log("Error stack: " + error.stack);
-      console.error(error);
-    }
-    
-    Logger.log(`=== onEdit FIN: fila=${row} ===`);
-  }
-
-  // Utilidad: convierte índice de columna (1-based) a letra A1
-  function columnToLetter(column) {
-    let temp = "";
-    let col = column;
-    while (col > 0) {
-      let rem = (col - 1) % 26;
-      temp = String.fromCharCode(65 + rem) + temp;
-      col = Math.floor((col - 1) / 26);
-    }
-    return temp;
-  }
-
-  // Resuelve la hoja de costos "G. <nombreHoja>" con heurísticas
-  function resolveGSheet_(ss, nombreHoja) {
-    const exact = ss.getSheetByName(`G. ${nombreHoja}`);
-    if (exact) return exact;
-    const noSpace = ss.getSheetByName(`G.${nombreHoja}`);
-    if (noSpace) return noSpace;
-    const noDot = ss.getSheetByName(`G ${nombreHoja}`);
-    if (noDot) return noDot;
-    const all = ss.getSheets();
-    // Preferir el que empieza por "G. <nombreHoja>"
-    const prefix = `G. ${nombreHoja}`.toLowerCase();
-    const prefixNoDot = `G ${nombreHoja}`.toLowerCase();
-    let candidate = null;
-    for (const sh of all) {
-      const n = sh.getName().toString().toLowerCase();
-      if (n === prefix) return sh;
-      if (n === prefixNoDot) return sh;
-      if (n.startsWith(prefix)) {
-        candidate = candidate || sh; // tomar el primero que matchee el prefijo
-      }
-      if (!candidate && n.startsWith(prefixNoDot)) {
-        candidate = sh;
-      }
-    }
-    if (candidate) return candidate;
-    // Como último recurso, devolver la única hoja que empiece con "G. " si existe una
-    const gSheets = all.filter(sh => sh.getName().toString().toLowerCase().startsWith('g. '));
-    if (gSheets.length === 1) return gSheets[0];
-    // O bien cualquier que empiece con "G " (sin punto) si es única
-    const gSheetsNoDot = all.filter(sh => sh.getName().toString().toLowerCase().startsWith('g '));
-    if (gSheetsNoDot.length === 1) return gSheetsNoDot[0];
-    return null;
-  }
-
-  // Normaliza una fecha (Date o string) a yyyy-MM-dd en la tz del script
-  function formatDateOnly_(val, tz) {
-    if (!val) return '';
-    try {
-      const d = (val instanceof Date) ? val : new Date(val);
-      if (isNaN(d)) return '';
-      return Utilities.formatDate(d, tz || Session.getScriptTimeZone(), 'yyyy-MM-dd');
-    } catch (e) {
-      return '';
-    }
-  }
-
-  // Determina si el texto del estado equivale a "Completado"
-  function isEstadoCompletado_(s) {
-    const t = normalizeKey_(s);
-    // Aceptamos variantes comunes: completado, completo, completada, completa
-    return t === 'completado' || t === 'completo' || t === 'completada' || t === 'completa';
-  }
-
-  // === Helpers: Carga Suelta ===
-  function getCargaSueltaOptions_(data, carpetaCol, tipoOpCol, contenedorCol, choferCol, carpetaVal) {
-    // Relajamos el filtro: basta con que la Carpeta coincida y el Contenedor siga el patrón Carpeta-XXX (3 dígitos).
-    // Esto permite reutilizar números aunque el Tipo de OP haya cambiado después.
-    const opts = [];
-    const seen = {};
-    const carpLower = carpetaVal.toString().trim().toLowerCase();
-    for (let i = 0; i < data.length; i++) {
-      const fila = data[i];
-      const carp = (fila[carpetaCol - 2] || '').toString().trim().toLowerCase();
-      if (carp !== carpLower) continue;
-      const cont = (fila[contenedorCol - 2] || '').toString().trim();
-      if (!cont) continue;
-      const contLower = cont.toLowerCase();
-      const pref = carpLower + '-';
-      if (!contLower.startsWith(pref)) continue;
-      const suf = cont.substring(carpetaVal.length + 1);
-      if (!/^\d{3}$/.test(suf)) continue;
-      if (!seen[cont]) {
-        seen[cont] = true;
-        const chofer = (fila[choferCol - 2] || '').toString().trim();
-        opts.push({ id: cont, chofer: chofer });
-      }
-    }
-    opts.sort((a, b) => {
-      const na = parseInt(a.id.substring(carpetaVal.length + 1), 10) || 0;
-      const nb = parseInt(b.id.substring(carpetaVal.length + 1), 10) || 0;
-      return na - nb;
-    });
-    return opts;
-  }
-
-  function getNextCargaSueltaId_(opciones, carpetaVal) {
-    let maxNum = 0;
-    const prefLen = carpetaVal.length + 1;
-    const carpLower = carpetaVal.toString().trim().toLowerCase() + '-';
-    for (const op of opciones) {
-      const idLower = op.id.toString().toLowerCase();
-      if (idLower.startsWith(carpLower)) {
-        const suf = op.id.substring(prefLen);
-        const n = parseInt(suf, 10);
-        if (!isNaN(n)) maxNum = Math.max(maxNum, n);
-      }
-    }
-    const next = (maxNum + 1).toString().padStart(3, '0');
-    return `${carpetaVal}-${next}`;
-  }
-
-  function showCargaSueltaDialog_(sheet, row, contenedorCol, carpetaVal, opciones, siguienteId) {
-    const ui = SpreadsheetApp.getUi();
-    const sheetName = sheet.getName();
-    const itemsHtml = opciones.map(o => `
-      <label class="opt">
-        <input type="checkbox" name="opId" value="${htmlEscape_(o.id)}" />
-        <span class="id">${htmlEscape_(o.id)}</span>
-        <span class="meta">— Chofer: ${htmlEscape_(o.chofer || '-')}</span>
-      </label>
-    `).join('');
-    const html = HtmlService.createHtmlOutput(`
-      <html>
-      <head>
-        <meta charset="UTF-8" />
-        <style>
-          body { font-family: Arial, sans-serif; padding: 12px; }
-          h2 { margin: 0 0 8px 0; font-size: 16px; }
-          .desc { font-size: 12px; color: #444; margin-bottom: 10px; }
-          .list { max-height: 220px; overflow: auto; border: 1px solid #ddd; padding: 8px; }
-          .opt { display: block; margin: 6px 0; }
-          .id { font-weight: 600; }
-          .meta { color: #666; margin-left: 6px; }
-          .actions { margin-top: 12px; display: flex; gap: 8px; }
-          button { padding: 6px 12px; }
-        </style>
-      </head>
-      <body>
-        <h2>Asignar N° Operativa (Carga Suelta)</h2>
-        <div class="desc">Carpeta: <b>${htmlEscape_(carpetaVal)}</b>. Seleccioná un número disponible o creá uno nuevo.</div>
-        <div class="list">
-          ${itemsHtml || '<div style="color:#777;">No hay números existentes en esta carpeta.</div>'}
-          <label class="opt" style="margin-top:8px; border-top:1px dashed #ddd; padding-top:8px;">
-            <input type="checkbox" name="opId" value="__new__" />
-            <span class="id">Crear nuevo</span>
-            <span class="meta">— se asignará ${htmlEscape_(siguienteId)}</span>
-          </label>
-        </div>
-        <div class="actions">
-          <button id="ok">Asignar</button>
-          <button id="cancel">Cancelar</button>
-        </div>
-        <script>
-          const inputs = Array.from(document.querySelectorAll('input[name="opId"]'));
-          // Forzar selección única usando checkboxes
-          inputs.forEach(inp => {
-            inp.addEventListener('change', () => {
-              if (inp.checked) {
-                inputs.forEach(x => { if (x !== inp) x.checked = false; });
-              }
-            });
-          });
-          document.getElementById('cancel').addEventListener('click', () => google.script.host.close());
-          document.getElementById('ok').addEventListener('click', () => {
-            const sel = inputs.find(i => i.checked);
-            if (!sel) { alert('Seleccioná una opción.'); return; }
-            let chosen = sel.value === '__new__' ? '${htmlEscape_(siguienteId)}' : sel.value;
-            google.script.run
-              .withSuccessHandler(() => google.script.host.close())
-              .assignCargaSueltaId({ sheetName: '${htmlEscape_(sheetName)}', row: ${row}, column: ${contenedorCol}, id: chosen });
-          });
-        </script>
-      </body>
-      </html>
-    `).setWidth(460).setHeight(420);
-    ui.showModalDialog(html, 'Seleccionar N° Operativa');
-  }
-
-  function assignCargaSueltaId(payload) {
-    try {
-      if (!payload || !payload.sheetName || !payload.row || !payload.column || !payload.id) {
-        throw new Error('Parámetros inválidos para assignCargaSueltaId');
-      }
-      const ss = SpreadsheetApp.getActive();
-      const sh = ss.getSheetByName(payload.sheetName);
-      if (!sh) throw new Error('Hoja no encontrada: ' + payload.sheetName);
-      sh.getRange(payload.row, payload.column).setValue(payload.id);
-      Logger.log(`assignCargaSueltaId: Fila=${payload.row}, Col=${payload.column}, ID=${payload.id}`);
-    } catch (err) {
-      Logger.log('assignCargaSueltaId Error: ' + err.message);
-      throw err;
-    }
-  }
-
-  function htmlEscape_(s) {
-    return (s == null ? '' : String(s))
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  // Opcional: crear el disparador instalable onEdit desde el script (ejecutar manualmente una vez)
-  function setupInstallableOnEditTrigger() {
-    const ss = SpreadsheetApp.getActive();
-    // Eliminar triggers previos de onEdit para evitar duplicados
-    ScriptApp.getProjectTriggers().forEach(t => {
-      if (t.getHandlerFunction && t.getHandlerFunction() === 'onEdit') {
-        ScriptApp.deleteTrigger(t);
-      }
-    });
-    ScriptApp.newTrigger('onEdit').forSpreadsheet(ss).onEdit().create();
-    Logger.log('Trigger instalable onEdit creado.');
-  }
-
-  // Crear menú para asignación manual de números Carga Suelta
-  function onOpen() {
-    const ui = SpreadsheetApp.getUi();
-    ui.createMenu('Carga Suelta')
-      .addItem('Asignar N° Operativa fila activa', 'openCargaSueltaDialogForActiveRow_')
-      .addToUi();
-  }
-
-  function openCargaSueltaDialogForActiveRow_() {
-    const sheet = SpreadsheetApp.getActiveSheet();
-    const range = sheet.getActiveRange();
-    if (!range) { SpreadsheetApp.getUi().alert('Seleccioná una fila.'); return; }
-    const row = range.getRow();
-    if (row < 2) { SpreadsheetApp.getUi().alert('Seleccioná una fila de datos (>=2).'); return; }
-    const headers = sheet.getRange(1, 2, 1, sheet.getLastColumn() - 1).getValues()[0].map(h => h.toString().trim().toLowerCase());
-    const headersNorm = headers.map(normalizeKey_);
-    const getCol = name => { const idx = headersNorm.indexOf(normalizeKey_(name)); if (idx === -1) throw new Error('Columna no encontrada: '+name); return idx + 2; };
-    let tipoOpCol = -1; try { tipoOpCol = getCol('tipo de op'); } catch (e) { try { tipoOpCol = getCol('operador'); } catch (e2) {} }
-    const carpetaCol = getCol('carpeta');
-    const contenedorCol = getCol('contenedor');
-    const choferCol = getCol('chofer');
-    if (tipoOpCol <= 0) { SpreadsheetApp.getUi().alert('No existe la columna "Tipo de OP".'); return; }
-    const tipoVal = normalizeKey_(sheet.getRange(row, tipoOpCol).getValue());
-    if (tipoVal !== 'carga suelta') { SpreadsheetApp.getUi().alert('La fila activa no es Carga Suelta.'); return; }
-    const carpetaVal = sheet.getRange(row, carpetaCol).getValue().toString().trim();
-    if (!carpetaVal) { SpreadsheetApp.getUi().alert('La Carpeta está vacía.'); return; }
-    const contActual = sheet.getRange(row, contenedorCol).getValue().toString().trim();
-    const lastRow = sheet.getLastRow();
-    const data = sheet.getRange(2, 2, lastRow - 1, headers.length).getValues();
-    const opciones = getCargaSueltaOptions_(data, carpetaCol, tipoOpCol, contenedorCol, choferCol, carpetaVal);
-    const siguiente = getNextCargaSueltaId_(opciones, carpetaVal);
-    
-    // Si no hay operativas existentes, asignar automáticamente sin mostrar diálogo
-    if (opciones.length === 0) {
-      sheet.getRange(row, contenedorCol).setValue(siguiente);
-      SpreadsheetApp.getUi().alert(`Asignado automáticamente: ${siguiente}`);
-      return;
-    }
-    
-    // Si hay operativas existentes, mostrar diálogo para seleccionar
-    showCargaSueltaDialog_(sheet, row, contenedorCol, carpetaVal, opciones, siguiente);
-  }
-
-  // Envía una fila de la hoja operativa a la hoja de costos (G.<hoja>)
-  // getCol: función para obtener columna por nombre; headers: array de headers
-  function sendRowToG_(sheet, row, getCol, headers) {
-    const ss = sheet.getParent();
-    const nombreHoja = sheet.getName();
-    const hojaCostos = resolveGSheet_(ss, nombreHoja);
-    if (!hojaCostos) throw new Error('No se encontró hoja de costos G. ' + nombreHoja);
-
-    const contenedorCol = getCol('contenedor');
-    const enviadoCol = getCol('enviado');
-    const carpetaCol = getCol('carpeta');
-    const fleteroCol = getCol('fletero');
-    const inicioOpCol = getCol('inicio op.');
-
-    const fecha = sheet.getRange(row, 1).getValue();
-    const carpeta = sheet.getRange(row, carpetaCol).getValue();
-    const cliente = sheet.getRange(row, 4).getValue();
-    const origen = sheet.getRange(row, 5).getValue();
-    const destino = sheet.getRange(row, 6).getValue();
-    const tarifa = safeGet_(sheet, row, getCol, 'tarifa');
-    const moneda = safeGet_(sheet, row, getCol, 'moneda');
-    const otrosServ = safeGet_(sheet, row, getCol, 'otros serv.');
-    const costoFletero = safeGet_(sheet, row, getCol, 'costo');
-    const fleteroVal = sheet.getRange(row, fleteroCol).getValue().toString().trim();
-    const esTercerizado = fleteroVal ? 'Si' : 'No';
-    const inicioOp = sheet.getRange(row, inicioOpCol).getValue();
-    const contenedor = sheet.getRange(row, contenedorCol).getValue();
-    const extrProveedores = safeGet_(sheet, row, getCol, 'extr. proveedores');
-    const citacionChof = safeGet_(sheet, row, getCol, 'citación');
-    const salidaChof = safeGet_(sheet, row, getCol, 'salida');
-    let tipoOpVal = ''; try { tipoOpVal = sheet.getRange(row, getCol('tipo de op')).getValue(); } catch (e) { try { tipoOpVal = sheet.getRange(row, getCol('operador')).getValue(); } catch (e2) {} }
-    const matriculaVal = safeGet_(sheet, row, getCol, 'matricula 1');
-    const detExtrasVal = safeGet_(sheet, row, getCol, 'peones/verif/etc');
-    
-    // Leer KM - probar varios nombres de columna con logging detallado
-    let kmOp = '';
-    let kmColFound = false;
-    
-    // Intentar leer "KM Promedio"
-    try {
-      const kmCol = getCol('km promedio');
-      Logger.log(`sendRowToG_: Columna 'KM Promedio' encontrada en posición ${kmCol} (fila ${row})`);
-      const kmValue = sheet.getRange(row, kmCol).getValue();
-      Logger.log(`sendRowToG_: Valor raw leído de KM Promedio: "${kmValue}" (tipo: ${typeof kmValue})`);
-      
-      // Validar: debe ser un número válido y mayor que 0
-      if (kmValue !== '' && kmValue !== null && kmValue !== undefined) {
-        const kmNum = parseFloat(kmValue);
-        if (!isNaN(kmNum) && kmNum > 0) {
-          kmOp = kmNum;
-          kmColFound = true;
-          Logger.log(`sendRowToG_: ✓ KM válido leído de 'KM Promedio': ${kmOp}`);
-        } else {
-          Logger.log(`sendRowToG_: ✗ KM en 'KM Promedio' no es válido o es 0: ${kmValue}`);
-        }
-      } else {
-        Logger.log(`sendRowToG_: ✗ KM en 'KM Promedio' está vacío`);
-      }
-    } catch (e) {
-      Logger.log(`sendRowToG_: ✗ No se encontró columna 'KM Promedio': ${e.message}`);
-    }
-    
-    // Si no se encontró en KM Promedio, intentar alternativas
-    if (!kmColFound) {
-      try {
-        const kmCol = getCol('km');
-        const kmValue = sheet.getRange(row, kmCol).getValue();
-        if (kmValue !== '' && kmValue !== null) {
-          const kmNum = parseFloat(kmValue);
-          if (!isNaN(kmNum) && kmNum > 0) {
-            kmOp = kmNum;
-            Logger.log(`sendRowToG_: ✓ KM leído de 'KM': ${kmOp}`);
-            kmColFound = true;
-          }
-        }
-      } catch (e) {
-        Logger.log(`sendRowToG_: Columna 'KM' no encontrada: ${e.message}`);
-      }
-    }
-    
-    if (!kmColFound) {
-      try {
-        const kmCol = getCol('kilometros');
-        const kmValue = sheet.getRange(row, kmCol).getValue();
-        if (kmValue !== '' && kmValue !== null) {
-          const kmNum = parseFloat(kmValue);
-          if (!isNaN(kmNum) && kmNum > 0) {
-            kmOp = kmNum;
-            Logger.log(`sendRowToG_: ✓ KM leído de 'Kilometros': ${kmOp}`);
-            kmColFound = true;
-          }
-        }
-      } catch (e) {
-        Logger.log(`sendRowToG_: Columna 'Kilometros' no encontrada: ${e.message}`);
-      }
-    }
-    
-    Logger.log(`sendRowToG_: === KM FINAL para fila ${row}: "${kmOp}" (tipo: ${typeof kmOp}) ===`);
-    
-    // Calcular litros: km / 2.8 (solo si hay KM)
-    const litrosCalc = (kmOp && !isNaN(kmOp) && kmOp > 0) ? (parseFloat(kmOp) / 2.8) : '';
-    Logger.log(`sendRowToG_: Litros calculados=${litrosCalc} (fila ${row})`);
-    const zonaHoraria = Session.getScriptTimeZone();
-    let finOpHora = '';
-    try {
-      const finOpHeaderCol = getCol('hora final');
-      const finOpCellVal = sheet.getRange(row, finOpHeaderCol).getValue();
-      finOpHora = finOpCellVal ? Utilities.formatDate(new Date(finOpCellVal), zonaHoraria, 'HH:mm') : '';
-    } catch (e) {
-      try {
-        const finOpCol = getCol('fin op.');
-        const finOpVal = sheet.getRange(row, finOpCol).getValue();
-        finOpHora = finOpVal ? Utilities.formatDate(new Date(finOpVal), zonaHoraria, 'HH:mm') : '';
-      } catch (e2) {
-        finOpHora = '';
-      }
-    }
-
-    const headersCostos = hojaCostos.getRange(1, 1, 1, hojaCostos.getLastColumn()).getValues()[0].map(h => h.toString().trim().toLowerCase());
-    const headersCostosNorm = headersCostos.map(normalizeKey_);
-    const getColCostos = name => headersCostosNorm.indexOf(normalizeKey_(name)) + 1;
-    const colFactura = getColCostos('factura');
-
-    const nuevoRegistroArr = Array(headersCostos.length).fill('');
-    const setIf = (colName, val) => { const c = getColCostos(colName); if (c > 0) nuevoRegistroArr[c - 1] = val; };
-    setIf('carpeta', carpeta);
-    // Factura: en appendOnly dejamos vacío (no auto)
-    setIf('factura', '');
-    setIf('fecha de op.', fecha);
-    setIf('nro. cont - op.', contenedor);
-    setIf('tipo de op.', tipoOpVal);  // Tipo de OP desde col L operativa → col E gastos
-    setIf('matricula', matriculaVal);  // Matricula 1 desde col U operativa → col F gastos
-    setIf('cliente', cliente);
-    setIf('origen', origen);
-    setIf('destino', destino);
-    setIf('terciarizado', esTercerizado);
-    setIf('venta flete', '');  // Se llenará con fórmula o valor según moneda
-    setIf('costos extra', otrosServ);
-    setIf('det. extras', detExtrasVal);  // Peones/Verif/Etc desde col S operativa -> col M gastos
-    setIf('costo fletero', costoFletero);
-    setIf('extr. proveedores', extrProveedores);
-    setIf('kilometros', kmOp);  // KM desde operativa -> col Q gastos
-    setIf('litros', litrosCalc);  // km / 2.8 -> col R gastos
-    setIf('costo gasoil', '');  // Dejamos vacío
-    setIf('citacion chof.', citacionChof);
-    setIf('hora inicio', inicioOp);
-    setIf('hora final', finOpHora);
-    setIf('salida chof.', salidaChof);
-    setIf('total de costos', '');
-    setIf('total venta', '');
-    setIf('margen', '');
-    setIf('mcv', '');
-
-    const lastRowCostos = hojaCostos.getLastRow();
-    const filaFinal = lastRowCostos + 1; // append siempre en envío en bloque
-    hojaCostos.getRange(filaFinal, 1, 1, nuevoRegistroArr.length).setValues([nuevoRegistroArr]);
-
-    // Venta Flete: si moneda = "Pesos" o "UYU", usar fórmula =tarifa/$AK$1; sino valor directo
-    const colVentaFlete = getColCostos('venta flete');
-    if (colVentaFlete > 0) {
-      const monedaNorm = normalizeKey_(moneda);
-      if ((monedaNorm === 'pesos' || monedaNorm === 'uyu') && tarifa) {
-        // Escribir fórmula que divide tarifa por AK1
-        hojaCostos.getRange(filaFinal, colVentaFlete).setFormula(`=${tarifa}/$AK$1`);
-        Logger.log(`sendRowToG_: Venta Flete con fórmula (Pesos/UYU): =${tarifa}/$AK$1`);
-      } else {
-        // Escribir valor directo
-        hojaCostos.getRange(filaFinal, colVentaFlete).setValue(tarifa || '');
-        Logger.log(`sendRowToG_: Venta Flete con valor directo: ${tarifa}`);
-      }
-    }
-
-    // Calcular Costo Chofer solo si NO es terciarizado
-    const colCostoChofer = getColCostos('costo chofer');
-    if (colCostoChofer > 0 && esTercerizado === 'No') {
-      const costoChoferCalc = calcularCostoChofer_(citacionChof, inicioOp, finOpHora, salidaChof);
-      if (costoChoferCalc !== null) {
-        hojaCostos.getRange(filaFinal, colCostoChofer).setValue(costoChoferCalc);
-        Logger.log(`sendRowToG_: Costo Chofer calculado=${costoChoferCalc} para fila ${row}`);
-      }
-    }
-
-    // Fórmula Costo Gasoil: =IFS(R{fila}="","",R{fila}<>"",R{fila}*$AL$1)
-    const colCostoGasoil = getColCostos('costo gasoil');
-    const colLitros = getColCostos('litros');
-    if (colCostoGasoil > 0 && colLitros > 0) {
-      const letraLitros = columnToLetter(colLitros);
-      hojaCostos.getRange(filaFinal, colCostoGasoil).setFormula(`=IFS(${letraLitros}${filaFinal}="","",${letraLitros}${filaFinal}<>"",${letraLitros}${filaFinal}*$AL$1)`);
-      Logger.log(`sendRowToG_: Fórmula Costo Gasoil aplicada en fila ${filaFinal}`);
-    }
-
-    // Fórmula Total de Costos: =IFS(J{fila}="Si", N{fila}+O{fila}, J{fila}="No", P{fila}+S{fila}+O{fila})
-    const colTotalCostos = getColCostos('total de costos');
-    if (colTotalCostos > 0) {
-      const letraJ = columnToLetter(getColCostos('terciarizado'));
-      const letraN = columnToLetter(getColCostos('costo fletero'));
-      const letraO = columnToLetter(getColCostos('extr. proveedores'));
-      const letraP = columnToLetter(getColCostos('costo chofer'));
-      const letraS = columnToLetter(getColCostos('costo gasoil'));
-      hojaCostos.getRange(filaFinal, colTotalCostos).setFormula(`=IFS(${letraJ}${filaFinal}="Si",${letraN}${filaFinal}+${letraO}${filaFinal},${letraJ}${filaFinal}="No",${letraP}${filaFinal}+${letraS}${filaFinal}+${letraO}${filaFinal})`);
-      Logger.log(`sendRowToG_: Fórmula Total de Costos aplicada en fila ${filaFinal}`);
-    }
-
-    // Fórmula Total Venta: =SUM(K{fila}+L{fila})
-    const colTotalVenta = getColCostos('total venta');
-    if (colTotalVenta > 0) {
-      const letraK = columnToLetter(getColCostos('venta flete'));
-      const letraL = columnToLetter(getColCostos('costos extra'));
-      hojaCostos.getRange(filaFinal, colTotalVenta).setFormula(`=SUM(${letraK}${filaFinal}+${letraL}${filaFinal})`);
-      Logger.log(`sendRowToG_: Fórmula Total Venta aplicada en fila ${filaFinal}`);
-    }
-
-    // Fórmula MCV: =Y{fila}-X{fila}
-    const colMCV = getColCostos('mcv');
-    if (colMCV > 0) {
-      const letraY = columnToLetter(getColCostos('total venta'));
-      const letraX = columnToLetter(getColCostos('total de costos'));
-      hojaCostos.getRange(filaFinal, colMCV).setFormula(`=${letraY}${filaFinal}-${letraX}${filaFinal}`);
-      Logger.log(`sendRowToG_: Fórmula MCV aplicada en fila ${filaFinal}`);
-    }
-
-    // marcar enviado en la fila operativa
-    sheet.getRange(row, enviadoCol).setValue('Enviado');
-
-    return { filaFinal };
-  }
-
-  function safeGet_(sheet, row, getCol, headerName) {
-    try { return sheet.getRange(row, getCol(headerName)).getValue(); } catch (e) { return ''; }
-  }
-
-  // Calcula el costo del chofer según las horas trabajadas
-  // Usa Citación/Salida si están disponibles, sino Hora inicio/Hora final
-  // <8h: horas × 10.25 | >=8h: (8 × 10.25) + ((horas - 8) × 15.04)
-  function calcularCostoChofer_(citacion, horaInicio, horaFinal, salida) {
-    try {
-      // Determinar hora de entrada: priorizar Citación, sino Hora inicio
-      let entrada = citacion || horaInicio;
-      // Determinar hora de salida: priorizar Salida, sino Hora final
-      let salidaFinal = salida || horaFinal;
-      
-      Logger.log(`calcularCostoChofer_: entrada raw=${entrada} (tipo=${typeof entrada}), salida raw=${salidaFinal} (tipo=${typeof salidaFinal})`);
-      
-      if (!entrada || !salidaFinal) {
-        Logger.log('calcularCostoChofer_: Falta entrada o salida, no se puede calcular.');
-        return null;
-      }
-
-      // Convertir a horas decimales (Google Sheets guarda las horas como fracciones de día)
-      const parseHora = (val) => {
-        if (!val) return null;
-        
-        // Si es un número entre 0 y 1 (fracción de día de Google Sheets)
-        if (typeof val === 'number' && val >= 0 && val < 1) {
-          return val * 24; // Convertir a horas
-        }
-        
-        // Si es Date, extraer la hora
-        if (val instanceof Date) {
-          return val.getHours() + (val.getMinutes() / 60);
-        }
-        
-        // Si es string en formato HH:mm
-        const str = val.toString().trim();
-        if (/^\d{1,2}:\d{2}$/.test(str)) {
-          const [h, m] = str.split(':').map(Number);
-          return h + (m / 60);
-        }
-        
-        // Intentar parsear como fecha completa
-        const d = new Date(val);
-        if (!isNaN(d)) {
-          return d.getHours() + (d.getMinutes() / 60);
-        }
-        
-        return null;
-      };
-
-      const entradaHoras = parseHora(entrada);
-      const salidaHoras = parseHora(salidaFinal);
-      
-      Logger.log(`calcularCostoChofer_: entradaHoras=${entradaHoras}, salidaHoras=${salidaHoras}`);
-      
-      if (entradaHoras === null || salidaHoras === null) {
-        Logger.log('calcularCostoChofer_: No se pudo parsear entrada/salida.');
-        return null;
-      }
-
-      // Calcular diferencia en horas
-      let horasTrabajadas = salidaHoras - entradaHoras;
-      // Si la salida es menor (cruzó medianoche), sumar 24h
-      if (horasTrabajadas < 0) horasTrabajadas += 24;
-      
-      // Validar que sea razonable (entre 0 y 24 horas)
-      if (horasTrabajadas < 0 || horasTrabajadas > 24) {
-        Logger.log(`calcularCostoChofer_: Horas inválidas=${horasTrabajadas}`);
-        return null;
-      }
-
-      Logger.log(`calcularCostoChofer_: Horas trabajadas=${horasTrabajadas.toFixed(2)}`);
-
-      // Aplicar tarifas
-      let costo = 0;
-      if (horasTrabajadas < 8) {
-        // Menos de 8 horas: horas × 10.25
-        costo = horasTrabajadas * 10.25;
-      } else {
-        // 8 o más: primeras 8 horas a 10.25, excedente a 15.04
-        const horasBase = 8;
-        const horasExtra = horasTrabajadas - 8;
-        costo = (horasBase * 10.25) + (horasExtra * 15.04);
-      }
-
-      Logger.log(`calcularCostoChofer_: Costo calculado=${costo.toFixed(2)}`);
-      return Math.round(costo * 100) / 100; // redondear a 2 decimales
-    } catch (err) {
-    Logger.log('calcularCostoChofer_ Error: ' + err.message);
-    return null;
-  }
-}
-
 // ============================================================================
-// FUNCIÓN AUXILIAR: Actualizar KM faltantes en planilla de gastos
+// CONFIGURACIÓN: PEGA AQUÍ LA URL DE TU ENDPOINT DE GOOGLE APPS SCRIPT
 // ============================================================================
-// Esta función lee los KM de la planilla operativa y actualiza las filas 
-// correspondientes en la planilla de gastos que tengan KM = 0 o vacío.
-// Ejecutar manualmente UNA VEZ desde el editor de Apps Script.
-function actualizarKMEnGastos() {
+// Para crear el endpoint:
+// 1. En tu hoja de Google Sheets, ve a Extensiones > Apps Script
+// 2. Crea una función doGet() que devuelva los datos en JSON (ver ejemplo abajo)
+// 3. Publica como aplicación web (Implementar > Nueva implementación > Aplicación web)
+// 4. Selecciona "Cualquier persona" en "Quién tiene acceso"
+// 5. Copia la URL que te da y pégala aquí:
+
+const URL_API = 'https://script.google.com/macros/s/AKfycbyTeVfgta4PC27Xzg1b5BANqap9WsYT1jTbeyLYuUgBkrkkgLnGCdnBDcGJGmXaGYBNaA/exec';
+
+// Ejemplo de función doGet() para Apps Script:
+/*
+function doGet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const hojaOperativa = ss.getSheets()[0]; // Primera hoja (ajustar si necesario)
-  const nombreHoja = hojaOperativa.getName();
-  const hojaGastos = resolveGSheet_(ss, "Nov 25");
+  const sheet = ss.getSheetByName('G. Nov 25'); // Ajusta el nombre
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const rows = data.slice(1);
   
-  if (!hojaGastos) {
-    Logger.log('ERROR: No se encontró la hoja de gastos G. ' + "Nov 25");
-    return;
-  }
+  const json = rows.map(row => {
+    let obj = {};
+    headers.forEach((header, i) => {
+      obj[header] = row[i];
+    });
+    return obj;
+  });
   
-  Logger.log(`=== Iniciando actualización de KM en ${hojaGastos.getName()} ===`);
-  
-  // Headers de operativa
-  const headersOp = hojaOperativa.getRange(1, 2, 1, hojaOperativa.getLastColumn() - 1)
-    .getValues()[0].map(h => h.toString().trim().toLowerCase());
-  const headersOpNorm = headersOp.map(normalizeKey_);
-  const getColOp = name => {
-    const idx = headersOpNorm.indexOf(normalizeKey_(name));
-    if (idx === -1) throw new Error(`Columna operativa no encontrada: "${name}"`);
-    return idx + 2;
-  };
-  
-  // Headers de gastos
-  const headersGastos = hojaGastos.getRange(1, 1, 1, hojaGastos.getLastColumn())
-    .getValues()[0].map(h => h.toString().trim().toLowerCase());
-  const headersGastosNorm = headersGastos.map(normalizeKey_);
-  const getColGastos = name => headersGastosNorm.indexOf(normalizeKey_(name)) + 1;
-  
-  // Columnas relevantes
-  const colOpCarpeta = getColOp('carpeta');
-  const colOpContenedor = getColOp('contenedor');
-  const colOpKM = getColOp('km promedio');
-  
-  const colGastosCarpeta = getColGastos('carpeta');
-  const colGastosContenedor = getColGastos('nro. cont - op.');
-  const colGastosKM = getColGastos('kilometros');
-  const colGastosLitros = getColGastos('litros');
-  
-  Logger.log(`Columnas operativa: Carpeta=${colOpCarpeta}, Contenedor=${colOpContenedor}, KM=${colOpKM}`);
-  Logger.log(`Columnas gastos: Carpeta=${colGastosCarpeta}, Contenedor=${colGastosContenedor}, KM=${colGastosKM}, Litros=${colGastosLitros}`);
-  
-  // Leer todos los datos de operativa
-  const lastRowOp = hojaOperativa.getLastRow();
-  const dataOp = hojaOperativa.getRange(2, 2, lastRowOp - 1, hojaOperativa.getLastColumn() - 1).getValues();
-  
-  // Leer todos los datos de gastos
-  const lastRowGastos = hojaGastos.getLastRow();
-  const dataGastos = hojaGastos.getRange(2, 1, lastRowGastos - 1, hojaGastos.getLastColumn()).getValues();
-  
-  let actualizados = 0;
-  let sinKM = 0;
-  
-  // Para cada fila de gastos que tenga KM = 0 o vacío
-  for (let i = 0; i < dataGastos.length; i++) {
-    const filaGastos = i + 2;
-    const carpetaGastos = dataGastos[i][colGastosCarpeta - 1].toString().trim();
-    const contenedorGastos = dataGastos[i][colGastosContenedor - 1].toString().trim();
-    const kmActual = dataGastos[i][colGastosKM - 1];
-    
-    // Solo actualizar si KM está vacío o es 0
-    if (kmActual && parseFloat(kmActual) > 0) {
-      continue; // Ya tiene KM válido
-    }
-    
-    // Buscar en operativa
-    let kmEncontrado = null;
-    for (let j = 0; j < dataOp.length; j++) {
-      const carpetaOp = dataOp[j][colOpCarpeta - 2].toString().trim();
-      const contenedorOp = dataOp[j][colOpContenedor - 2].toString().trim();
-      
-      if (carpetaOp === carpetaGastos && contenedorOp === contenedorGastos) {
-        const kmOp = dataOp[j][colOpKM - 2];
-        if (kmOp && parseFloat(kmOp) > 0) {
-          kmEncontrado = parseFloat(kmOp);
-          break;
+  return ContentService.createTextOutput(JSON.stringify(json))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+*/
+  // ============================================================================
+// VARIABLES GLOBALES
+// ============================================================================
+let allData = []; // Datos del mes seleccionado
+let filteredData = []; // Datos filtrados del mes seleccionado
+let filteredHistoricalData = []; // Datos filtrados acumulados por mes
+const historicalData = {}; // Datos normalizados por planilla
+let currentMonth = '';
+let chartMargenMensual = null;
+let chartMargenCliente = null;
+let chartMarginWaterfall = null;
+// Ajusta este valor para cambiar la tarifa por hora del chofer en el Waterfall.
+const WATERFALL_DEFAULT_COSTO_HORA = 12;
+  const MONTH_NAME_MAP = {
+    ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6,
+    jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12
+};
+  // Convierte valores con separadores locales a números válidos
+function toNumber(value) {
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+    if (value === null || value === undefined) return 0;
+    const cleaned = value
+        .toString()
+        .trim()
+        .replace(/\s+/g, '')
+        .replace(/\./g, '')
+        .replace(',', '.');
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+  // Normaliza encabezados para hacer coincidencias robustas
+function normalizeKey(key) {
+    if (key === null || key === undefined) return '';
+    return key
+        .toString()
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '');
+}
+  function buildRowMap(row) {
+    const map = {};
+    if (!row || typeof row !== 'object') return map;
+    Object.keys(row).forEach(key => {
+        const normalized = normalizeKey(key);
+        if (normalized && map[normalized] === undefined) {
+            map[normalized] = row[key];
         }
-      }
+    });
+    return map;
+}
+  function getValue(map, header, fallback = '') {
+    const targets = Array.isArray(header) ? header : [header];
+    for (const target of targets) {
+        const normalized = normalizeKey(target);
+        if (!normalized) continue;
+        if (Object.prototype.hasOwnProperty.call(map, normalized)) {
+            const value = map[normalized];
+            if (value !== undefined && value !== null && value !== '') return value;
+        }
     }
+    return fallback;
+}
+  function getNumber(map, header) {
+    return toNumber(getValue(map, header, 0));
+}
+  function normalizeText(value) {
+    if (value === null || value === undefined) return '';
+    return value.toString().trim().toLowerCase();
+}
+  // ============================================================================
+// FUNCIÓN: Cargar datos de la API usando JSONP (evita problemas de CORS)
+// ============================================================================
+function fetchData() {
+    const selectMes = document.getElementById('filterMes');
+    const mesSeleccionado = selectMes ? selectMes.value : '';
+    currentMonth = mesSeleccionado;
+      console.log('🔄 fetchData: Iniciando carga de datos para', mesSeleccionado || '(sin seleccionar)');
+    console.log('📍 URL_API:', URL_API);
+      if (!mesSeleccionado) {
+        console.warn('⚠️ No se ha seleccionado un mes válido.');
+        return;
+    }
+      requestSheetData(
+        mesSeleccionado,
+        data => processData(data, mesSeleccionado),
+        () => {
+            document.getElementById('tableWrapper').innerHTML =
+                '<div class="error">Error al cargar datos. Verifica la URL del endpoint.<br>URL: ' + URL_API + '</div>';
+        }
+    );
+}
+  function requestSheetData(sheetName, onSuccess, onError, options = {}) {
+    const { silent = false } = options;
+    const callbackName = `jsonpCallback_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const finalURL = `${URL_API}?callback=${callbackName}&sheet=${encodeURIComponent(sheetName)}`;
+    const script = document.createElement('script');
+      console.log(`📡 requestSheetData: ${sheetName} → ${finalURL}`);
+      window[callbackName] = function(data) {
+        console.log(`✅ Datos recibidos (${sheetName}):`, data.length, 'filas');
+        cleanup();
+        if (onSuccess) onSuccess(data, sheetName);
+    };
+      function cleanup() {
+        delete window[callbackName];
+        if (script.parentNode) {
+            script.parentNode.removeChild(script);
+        }
+    }
+      script.src = finalURL;
+    script.onerror = function(error) {
+        console.error(`❌ Error al cargar datos (${sheetName}):`, error);
+        cleanup();
+        if (!silent) {
+            console.error('❌ Error crítico al cargar planilla principal.');
+        }
+        if (onError) onError(error, sheetName);
+    };
+      script.onload = function() {
+        console.log(`📥 Script cargado (${sheetName})`);
+    };
+      document.body.appendChild(script);
+}
+  function getAvailableMonths() {
+    const select = document.getElementById('filterMes');
+    if (!select) return [];
+    return Array.from(select.options)
+        .map(option => option.value)
+        .filter(Boolean);
+}
+  function normalizeMonthToken(name) {
+    return normalizeKey(name).slice(0, 3);
+}
+  function getMonthKeyFromSheet(sheet) {
+    if (!sheet) return '';
+    const parts = sheet.toString().trim().split(/\s+/);
+    if (parts.length < 2) return '';
+    const monthToken = normalizeMonthToken(parts[0]);
+    const monthNumber = MONTH_NAME_MAP[monthToken];
+    const yearRaw = parts[parts.length - 1];
+    const yearParsed = parseInt(yearRaw, 10);
+    if (!monthNumber || isNaN(yearParsed)) return '';
+    const fullYear = yearParsed < 100 ? 2000 + yearParsed : yearParsed;
+    return `${fullYear}-${String(monthNumber).padStart(2, '0')}`;
+}
+  function monthKeyToLabel(key) {
+    if (!key) return '';
+    const [yearStr, monthStr] = key.split('-');
+    const year = parseInt(yearStr, 10);
+    const monthIndex = parseInt(monthStr, 10);
+    if (!year || !monthIndex) return key;
+    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+    return `${monthNames[monthIndex - 1]} ${year}`;
+}
+  function getHistoricalRows() {
+    return Object.values(historicalData).flat();
+}
+  function preloadAdditionalMonths(selectedMonth) {
+    const months = getAvailableMonths()
+        .filter(month => month && month !== selectedMonth && !historicalData[month]);
+      if (!months.length) return;
+      months.forEach(month => {
+        requestSheetData(
+            month,
+            data => {
+                historicalData[month] = normalizeDataset(data, month);
+                console.log(`📦 Planilla precargada (${month}):`, historicalData[month].length, 'registros');
+                const filters = getActiveFilters();
+                filteredHistoricalData = filterDataset(getHistoricalRows(), filters);
+                renderCharts();
+            },
+            null,
+            { silent: true }
+        );
+    });
+}
+  function normalizeDataset(data, monthKey) {
+    return data.map(row => {
+        const map = buildRowMap(row);
+        const kilometros = getNumber(map, ['Kilometros', 'KM Promedio', 'KM']);
+        const record = {
+            planillaMes: monthKey,
+            carpeta: getValue(map, 'Carpeta'),
+            factura: getValue(map, 'Factura'),
+            fecha: getValue(map, ['Fecha de OP.', 'Fecha']),
+            contenedor: getValue(map, ['Nro. Cont - OP.', 'Contenedor']),
+            tipoOP: getValue(map, 'Tipo de OP.'),
+            matricula: getValue(map, 'Matricula'),
+            cliente: getValue(map, 'Cliente'),
+            origen: getValue(map, 'Origen'),
+            destino: getValue(map, 'Destino'),
+            terciarizado: getValue(map, 'Terciarizado', 'No') || 'No',
+            ventaFlete: getNumber(map, 'Venta Flete'),
+            costosExtra: getNumber(map, 'Costos Extra'),
+            detExtras: getValue(map, ['Det. Extras', 'Det Extras']),
+            costoFletero: getNumber(map, 'Costo Fletero'),
+            extrProveedores: getNumber(map, ['Extr. Proveedores', 'Costos OP.']),
+            costoChofer: getNumber(map, 'Costo Chofer'),
+            horaInicio: getValue(map, ['Hora inicio', 'Inicio Op.', 'Inicio']),
+            horaFinal: getValue(map, ['Hora final', 'Fin Op.', 'Fin']),
+            kilometros,
+            litros: getNumber(map, 'Litros'),
+            costoGasoil: getNumber(map, 'Costo Gasoil'),
+            totalCostos: getNumber(map, 'Total de Costos'),
+            totalVenta: getNumber(map, 'Total Venta'),
+            get margen() {
+                return this.totalVenta - this.totalCostos;
+            },
+            get margenPct() {
+                return this.totalVenta > 0 ? (this.margen / this.totalVenta * 100) : 0;
+            }
+        };
+          record.horas = computeHoras(record);
+        return record;
+    });
+}
+  function parseTime(value) {
+    if (!value) return null;
+    if (value instanceof Date && !isNaN(value.getTime())) return value;
+    const str = value.toString().trim();
+    if (!str) return null;
+      const timeMatch = str.match(/^\s*(\d{1,2})(?::(\d{2}))?\s*$/);
+    if (timeMatch) {
+        const hours = parseInt(timeMatch[1], 10);
+        const minutes = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+        if (isNaN(hours) || hours < 0 || hours > 23) return null;
+        if (isNaN(minutes) || minutes < 0 || minutes > 59) return null;
+        const date = new Date();
+        date.setHours(hours, minutes, 0, 0);
+        return date;
+    }
+      const date = new Date(str);
+    return isNaN(date.getTime()) ? null : date;
+}
+  function computeHoras(row) {
+    if (!row) return '';
+      const terciarizadoKey = normalizeKey(row.terciarizado);
+    if (terciarizadoKey === 'si') return 'N/A';
+      const inicio = parseTime(row.horaInicio);
+    const fin = parseTime(row.horaFinal);
+    if (!inicio || !fin) return '';
+      let diffMs = fin.getTime() - inicio.getTime();
+    if (diffMs < 0) {
+        diffMs += 24 * 60 * 60 * 1000;
+    }
+      const hours = diffMs / (60 * 60 * 1000);
+    return hours.toFixed(1);
+}
+  function processData(data, monthKey) {
+    try {
+        console.log('🔧 processData: Procesando', data.length, 'registros para', monthKey);
+        
+        // Debug: Ver los campos disponibles
+        if (data.length > 0) {
+            console.log('📋 Campos disponibles:', Object.keys(data[0]));
+            console.log('📋 Primera fila completa:', data[0]);
+        }
+        
+        const normalized = normalizeDataset(data, monthKey);
+        historicalData[monthKey] = normalized;
+        allData = normalized;
+          console.log('📊 Datos normalizados:', allData.length, 'registros');
+        console.log('🚗 Primeros 3 registros con origen/km:', allData.slice(0, 3).map(r => ({
+            carpeta: r.carpeta,
+            origen: r.origen,
+            km: r.kilometros
+        })));
+        
+        // Inicializar filtros con opciones únicas
+        populateFilters();
+        
+        // Aplicar filtros iniciales (todos los datos)
+        applyFilters();
+          // Precargar otras planillas para la gráfica mensual
+        preloadAdditionalMonths(monthKey);
+        
+        console.log('✅ Dashboard cargado exitosamente para', monthKey);
+        
+    } catch (error) {
+        console.error('❌ Error en processData:', error);
+        document.getElementById('tableWrapper').innerHTML = 
+            `<div class="error">Error al procesar datos: ${error.message}</div>`;
+    }
+}
+  // ============================================================================
+// FUNCIÓN: Poblar selectores de filtros con opciones únicas
+// ============================================================================
+function populateFilters() {
+    // Limpiar selectores existentes
+    const selectCliente = document.getElementById('filterCliente');
+    selectCliente.innerHTML = '<option value="">Todos</option>';
     
-    if (kmEncontrado) {
-      // Actualizar KM en gastos
-      hojaGastos.getRange(filaGastos, colGastosKM).setValue(kmEncontrado);
-      
-      // Calcular y actualizar litros (km / 2.8)
-      const litros = kmEncontrado / 2.8;
-      hojaGastos.getRange(filaGastos, colGastosLitros).setValue(litros);
-      
-      actualizados++;
-      Logger.log(`✓ Fila ${filaGastos}: Carpeta=${carpetaGastos}, Contenedor=${contenedorGastos}, KM=${kmEncontrado}, Litros=${litros.toFixed(2)}`);
-    } else {
-      sinKM++;
-      Logger.log(`✗ Fila ${filaGastos}: No se encontró KM en operativa (Carpeta=${carpetaGastos}, Contenedor=${contenedorGastos})`);
+    const selectTipoOP = document.getElementById('filterTipoOP');
+    selectTipoOP.innerHTML = '<option value="">Todos</option>';
+    
+    const selectTerciarizado = document.getElementById('filterTerciarizado');
+    selectTerciarizado.value = '';
+    
+    // Clientes únicos
+    const clientes = [...new Set(allData.map(d => d.cliente))].filter(c => c).sort();
+    clientes.forEach(cliente => {
+        const option = document.createElement('option');
+        option.value = cliente;
+        option.textContent = cliente;
+        selectCliente.appendChild(option);
+    });
+      // Tipos de OP únicos
+    const tiposOP = [...new Set(allData.map(d => d.tipoOP))].filter(t => t).sort();
+    tiposOP.forEach(tipo => {
+        const option = document.createElement('option');
+        option.value = tipo;
+        option.textContent = tipo;
+        selectTipoOP.appendChild(option);
+    });
+}
+  function getActiveFilters() {
+    return {
+        cliente: document.getElementById('filterCliente').value,
+        tipoOP: document.getElementById('filterTipoOP').value,
+        terciarizado: document.getElementById('filterTerciarizado').value,
+        searchCarpeta: normalizeText(document.getElementById('searchCarpeta')?.value),
+        searchContenedor: normalizeText(document.getElementById('searchContenedor')?.value)
+    };
+}
+  function matchesFilters(row, filters) {
+    if (filters.cliente && row.cliente !== filters.cliente) return false;
+    if (filters.tipoOP && row.tipoOP !== filters.tipoOP) return false;
+    if (filters.terciarizado && row.terciarizado !== filters.terciarizado) return false;
+    if (filters.searchCarpeta && !normalizeText(row.carpeta).includes(filters.searchCarpeta)) return false;
+    if (filters.searchContenedor && !normalizeText(row.contenedor).includes(filters.searchContenedor)) return false;
+    return true;
+}
+  function filterDataset(dataset, filters) {
+    return dataset
+        .filter(row => matchesFilters(row, filters));
+}
+  // ============================================================================
+// FUNCIÓN: Aplicar filtros a los datos
+// ============================================================================
+function applyFilters() {
+    const filters = getActiveFilters();
+    filteredData = filterDataset(allData, filters);
+    filteredHistoricalData = filterDataset(getHistoricalRows(), filters);
+      // Actualizar toda la interfaz
+    calculateKPIs();
+    renderCharts();
+    renderTable();
+}
+  // ============================================================================
+// FUNCIÓN: Calcular KPIs en base a datos filtrados
+// ============================================================================
+function calculateKPIs() {
+    const ingresoTotal = filteredData.reduce((sum, row) => sum + row.totalVenta, 0);
+    const costoTotal = filteredData.reduce((sum, row) => sum + row.totalCostos, 0);
+    const margenBruto = ingresoTotal - costoTotal;
+    const margenPct = ingresoTotal > 0 ? (margenBruto / ingresoTotal * 100) : 0;
+    
+    // Solo contar KM de operaciones que realmente tienen KM > 0
+    const totalKm = filteredData.reduce((sum, row) => {
+        return sum + (row.kilometros > 0 ? row.kilometros : 0);
+    }, 0);
+    const costoKm = totalKm > 0 ? (costoTotal / totalKm) : 0;
+    
+    // Debug detallado
+    console.log('💰 KPIs:', {
+        registros: filteredData.length,
+        costoTotal: costoTotal,
+        totalKm: totalKm,
+        costoKm: costoKm,
+        ejemploKm: filteredData.slice(0, 5).map(r => r.kilometros),
+        registrosConKm: filteredData.filter(r => r.kilometros > 0).length
+    });
+      // Actualizar UI
+    document.getElementById('kpiIngreso').textContent = formatCurrency(ingresoTotal);
+    document.getElementById('kpiCosto').textContent = formatCurrency(costoTotal);
+    
+    const margenEl = document.getElementById('kpiMargen');
+    margenEl.textContent = formatCurrency(margenBruto);
+    margenEl.className = 'kpi-value ' + (margenBruto >= 0 ? 'positive' : 'negative');
+    
+    const margenPctEl = document.getElementById('kpiMargenPct');
+    margenPctEl.textContent = margenPct.toFixed(1) + '%';
+    margenPctEl.className = 'kpi-value ' + (margenPct >= 0 ? 'positive' : 'negative');
+    
+    document.getElementById('kpiCostoKm').textContent = formatCurrency(costoKm, 2);
+}
+  // ============================================================================
+// FUNCIÓN: Renderizar gráficos con Chart.js
+// ============================================================================
+function renderCharts() {
+    renderMargenMensualChart(filteredHistoricalData);
+    renderMargenClienteChart();
+  renderMarginWaterfallChart();
+}
+  // Gráfico de líneas: Evolución mensual del margen bruto
+function renderMargenMensualChart(dataset) {
+    const source = Array.isArray(dataset) && dataset.length ? dataset : filteredData;
+    const margenPorMes = {};
+    
+    source.forEach(row => {
+        const referenceMonth = row.planillaMes || currentMonth;
+        let mesKey = getMonthKeyFromSheet(referenceMonth);
+          if (!mesKey) {
+            const date = parseDate(row.fecha, referenceMonth);
+            if (date) {
+                mesKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            }
+        }
+          if (!mesKey) return;
+          if (!margenPorMes[mesKey]) {
+            margenPorMes[mesKey] = { ingreso: 0, costo: 0 };
+        }
+          margenPorMes[mesKey].ingreso += row.totalVenta;
+        margenPorMes[mesKey].costo += row.totalCostos;
+    });
+      const meses = Object.keys(margenPorMes).sort();
+    const margenes = meses.map(mes => margenPorMes[mes].ingreso - margenPorMes[mes].costo);
+    const labels = meses.map(monthKeyToLabel);
+      // Destruir gráfico anterior si existe
+    if (chartMargenMensual) {
+        chartMargenMensual.destroy();
     }
-  }
-  
-  Logger.log(`=== RESUMEN ===`);
-  Logger.log(`Filas actualizadas con KM: ${actualizados}`);
-  Logger.log(`Filas sin KM en operativa: ${sinKM}`);
-  Logger.log(`Total filas procesadas: ${dataGastos.length}`);
-  
-  SpreadsheetApp.getUi().alert(`Actualización completada:\n\n✓ ${actualizados} filas actualizadas con KM\n✗ ${sinKM} filas sin KM en operativa\n\nTotal: ${dataGastos.length} filas procesadas`);
+      const ctx = document.getElementById('chartMargenMensual').getContext('2d');
+    chartMargenMensual = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Margen Bruto (USD)',
+                data: margenes,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return '$' + value.toLocaleString();
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+  // Gráfico de barras: Margen % por cliente
+function renderMargenClienteChart() {
+    // Agrupar datos por cliente
+    const margenPorCliente = {};
+    
+    filteredData.forEach(row => {
+        if (!row.cliente) return;
+        
+        if (!margenPorCliente[row.cliente]) {
+            margenPorCliente[row.cliente] = { ingreso: 0, costo: 0 };
+        }
+        
+        margenPorCliente[row.cliente].ingreso += row.totalVenta;
+        margenPorCliente[row.cliente].costo += row.totalCostos;
+    });
+      // Calcular margen % por cliente y ordenar
+    const clientes = Object.keys(margenPorCliente).map(cliente => ({
+        nombre: cliente,
+        margenPct: margenPorCliente[cliente].ingreso > 0 
+            ? ((margenPorCliente[cliente].ingreso - margenPorCliente[cliente].costo) / margenPorCliente[cliente].ingreso * 100)
+            : 0
+    })).sort((a, b) => b.margenPct - a.margenPct).slice(0, 10); // Top 10
+      // Destruir gráfico anterior si existe
+    if (chartMargenCliente) {
+        chartMargenCliente.destroy();
+    }
+      const ctx = document.getElementById('chartMargenCliente').getContext('2d');
+    chartMargenCliente = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: clientes.map(c => c.nombre),
+            datasets: [{
+                label: 'Margen %',
+                data: clientes.map(c => c.margenPct),
+                backgroundColor: clientes.map(c => c.margenPct >= 0 ? '#10b981' : '#ef4444')
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return value + '%';
+                        }
+                    }
+                }
+            }
+        }
+    });
 }
 
-// ============================================================================
-// ENDPOINT PARA DASHBOARD: Expone datos de la hoja G en JSON/JSONP
-// ============================================================================
-function doGet(e) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    
-    // Obtener el parámetro de hoja del query string (por defecto Oct 25)
-    const sheetParam = e.parameter.sheet || 'Oct 25';
-    const sheetName = 'G. ' + sheetParam;
-    Logger.log(`doGet: Parámetro recibido sheet="${sheetParam}", buscando hoja "${sheetName}"`);
-    
-    const sheet = ss.getSheetByName(sheetName);
-    
-    if (!sheet) {
-      Logger.log(`doGet: ERROR - Hoja "${sheetName}" no encontrada`);
-      const errorData = JSON.stringify({ error: 'Hoja no encontrada: ' + sheetName });
-      const callback = e.parameter.callback;
-      
-      if (callback) {
-        return ContentService.createTextOutput(callback + '(' + errorData + ')')
-          .setMimeType(ContentService.MimeType.JAVASCRIPT);
-      }
-      return ContentService.createTextOutput(errorData)
-        .setMimeType(ContentService.MimeType.JSON);
+const waterfallValueLabelsPlugin = {
+    id: 'waterfallValueLabels',
+    afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        const datasets = chart.data.datasets || [];
+        const fontFamily = chart.options.font?.family || 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI"';
+        const rootStyles = getComputedStyle(document.documentElement);
+        const fallbackColor = '#1f2937';
+        const textColor = chart.options.plugins?.waterfallLabels?.color?.trim() ||
+            rootStyles.getPropertyValue('--color-text-primary').trim() ||
+            fallbackColor;
+
+        ctx.save();
+        ctx.font = `12px ${fontFamily}`;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = 'center';
+
+        datasets.forEach((dataset, datasetIndex) => {
+            const meta = chart.getDatasetMeta(datasetIndex);
+            if (!meta) return;
+
+            dataset.data?.forEach((dataPoint, index) => {
+                if (!dataPoint) return;
+                const element = meta.data?.[index];
+                if (!element || element.hidden || element.skip) return;
+                const text = dataPoint.labelText;
+                if (!text) return;
+
+                const position = element.tooltipPosition();
+                const offset = dataPoint.delta >= 0 ? -8 : 16;
+                ctx.fillText(text, position.x, position.y + offset);
+            });
+        });
+
+        ctx.restore();
     }
+};
+
+function buildMarginWaterfall(dataset, options = {}) {
+    // Para agregar nuevas categorías (peajes, mantenimiento, etc.), extiende costSteps más abajo.
+    const settings = {
+        costoHoraChofer: options.costoHoraChofer ?? WATERFALL_DEFAULT_COSTO_HORA,
+        currency: options.currency || 'USD', // Cambia la moneda aquí.
+        locale: options.locale || 'es-UY',
+        currencyDigits: options.currencyDigits ?? 0,
+        dateRange: options.dateRange || null
+    };
+
+    const formatter = new Intl.NumberFormat(settings.locale, {
+        style: 'currency',
+        currency: settings.currency,
+        minimumFractionDigits: settings.currencyDigits,
+        maximumFractionDigits: settings.currencyDigits
+    });
+
+    let startDate = null;
+    let endDate = null;
+    if (settings.dateRange) {
+        if (settings.dateRange.start) {
+            startDate = settings.dateRange.start instanceof Date
+                ? settings.dateRange.start
+                : new Date(settings.dateRange.start);
+            if (Number.isNaN(startDate?.getTime())) startDate = null;
+        }
+        if (settings.dateRange.end) {
+            endDate = settings.dateRange.end instanceof Date
+                ? settings.dateRange.end
+                : new Date(settings.dateRange.end);
+            if (Number.isNaN(endDate?.getTime())) endDate = null;
+        }
+    }
+
+    const rows = Array.isArray(dataset) ? dataset.filter(row => {
+        if (!settings.dateRange) return true;
+        const parsed = parseDate(row.fecha, row.planillaMes || currentMonth);
+        if (!parsed) return false;
+        if (startDate && parsed < startDate) return false;
+        if (endDate && parsed > endDate) return false;
+        return true;
+    }) : [];
+
+    function extractNumber(source, keys) {
+        for (const key of keys) {
+            if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+                const value = toNumber(source[key]);
+                if (Number.isFinite(value)) {
+                    return value;
+                }
+            }
+        }
+        return null;
+    }
+
+    function numberOr(value, fallback = 0) {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return typeof fallback === 'number' ? fallback : toNumber(fallback);
+        }
+        return value;
+    }
+
+    function sanitizeHours(value) {
+        if (typeof value === 'number') {
+            return Number.isFinite(value) ? value : 0;
+        }
+        if (!value) return 0;
+        const parsed = parseFloat(value.toString().replace(',', '.'));
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    const totals = rows.reduce((acc, row) => {
+        const ingresoTotal = numberOr(extractNumber(row, ['ingreso', 'totalVenta', 'ventaFlete']), 0);
+        acc.ingresos += ingresoTotal;
+
+        const costoTercerosDirect = extractNumber(row, ['costoTerceros']);
+        const costoFletero = numberOr(extractNumber(row, ['costoFletero']), 0);
+        const costoProveedores = numberOr(extractNumber(row, ['extrProveedores']), 0);
+        const costoTerceros = costoTercerosDirect !== null ? costoTercerosDirect : (costoFletero + costoProveedores);
+        acc.costoTerceros += costoTerceros;
+
+        const combustible = numberOr(extractNumber(row, ['combustible', 'costoGasoil']), 0);
+        acc.combustible += combustible;
+
+        const horas = sanitizeHours(row.horasChofer ?? row.horas);
+        const tarifa = numberOr(extractNumber(row, ['costoHoraChofer']), settings.costoHoraChofer);
+        let costoChofer = horas * tarifa;
+        if (!horas) {
+            costoChofer = numberOr(extractNumber(row, ['costoChofer']), costoChofer);
+        }
+        acc.costoChofer += costoChofer;
+        acc.horasTotales += horas;
+
+        return acc;
+    }, { ingresos: 0, costoTerceros: 0, combustible: 0, costoChofer: 0, horasTotales: 0 });
+
+    const margin = totals.ingresos - totals.costoTerceros - totals.combustible - totals.costoChofer;
+    const marginPct = totals.ingresos > 0 ? (margin / totals.ingresos) * 100 : 0;
+
+    let cumulative = 0;
+    const steps = [];
+
+    steps.push({
+        label: 'Ingresos',
+        type: 'ingreso',
+        delta: totals.ingresos,
+        start: 0,
+        end: totals.ingresos,
+        percent: totals.ingresos > 0 ? 100 : 0
+    });
+    cumulative = totals.ingresos;
+
+    const costSteps = [
+        { label: 'Terceros', value: totals.costoTerceros },
+        { label: 'Combustible', value: totals.combustible },
+        { label: 'Chofer', value: totals.costoChofer }
+    ];
+
+    costSteps.forEach(step => {
+        const delta = -step.value;
+        const start = cumulative;
+        const end = cumulative + delta;
+        cumulative = end;
+        steps.push({
+            label: step.label,
+            type: 'costo',
+            delta,
+            start,
+            end,
+            percent: totals.ingresos > 0 ? (delta / totals.ingresos) * 100 : 0
+        });
+    });
+
+    steps.push({
+        label: 'Margen Bruto',
+        type: 'margen',
+        delta: margin,
+        start: 0,
+        end: margin,
+        percent: totals.ingresos > 0 ? marginPct : 0
+    });
+
+    const labels = steps.map(step => step.label);
+
+    function toDataArray(type) {
+        return steps
+            .filter(step => step.type === type)
+            .map(step => {
+                const rangeMin = Math.min(step.start, step.end);
+                const rangeMax = Math.max(step.start, step.end);
+                const percentValue = totals.ingresos > 0 ? step.percent : 0;
+                const percentText = totals.ingresos > 0 ? ` (${percentValue.toFixed(1)}%)` : '';
+                return {
+                    x: step.label,
+                    y: [rangeMin, rangeMax],
+                    delta: step.delta,
+                    percent: percentValue,
+                    cumulative: step.end,
+                    labelText: `${formatter.format(step.delta)}${percentText}`
+                };
+            });
+    }
+
+    const axisValues = steps.flatMap(step => [step.start, step.end]);
+    let minAxis = Math.min(0, ...axisValues);
+    let maxAxis = Math.max(0, ...axisValues);
+    if (minAxis === maxAxis) {
+        minAxis -= 1;
+        maxAxis += 1;
+    }
+
+    return {
+        labels,
+        datasets: {
+            ingresos: toDataArray('ingreso'),
+            costos: toDataArray('costo'),
+            margen: toDataArray('margen')
+        },
+        formatter,
+        totals,
+        marginPct,
+        axis: {
+            min: minAxis - Math.abs(minAxis) * 0.08,
+            max: maxAxis + Math.abs(maxAxis) * 0.08
+        },
+        settings
+    };
+}
+
+function renderMarginWaterfallChart() {
+    const canvas = document.getElementById('chartMarginWaterfall');
+    if (!canvas) return;
+
+    const chartPayload = buildMarginWaterfall(filteredData, {
+        costoHoraChofer: WATERFALL_DEFAULT_COSTO_HORA,
+        currency: 'USD',
+        locale: 'es-UY',
+        currencyDigits: 0
+    });
+
+    if (chartMarginWaterfall) {
+        chartMarginWaterfall.destroy();
+    }
+
+    const styles = getComputedStyle(document.documentElement);
+    const incomeColor = (styles.getPropertyValue('--color-positive') || '#10b981').trim() || '#10b981';
+    const costColor = (styles.getPropertyValue('--color-negative') || '#ef4444').trim() || '#ef4444';
+    const marginColor = (styles.getPropertyValue('--color-accent-strong') || '#1d4ed8').trim() || '#1d4ed8';
+    const textColor = (styles.getPropertyValue('--color-text-primary') || '#1f2937').trim() || '#1f2937';
+    const surfaceColor = (styles.getPropertyValue('--color-surface') || '#ffffff').trim() || '#ffffff';
+    const gridColor = (styles.getPropertyValue('--color-border') || 'rgba(148, 163, 184, 0.3)').trim() || 'rgba(148, 163, 184, 0.3)';
+
+    chartMarginWaterfall = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: chartPayload.labels,
+            datasets: [
+                {
+                    label: 'Ingresos',
+                    data: chartPayload.datasets.ingresos,
+                    backgroundColor: incomeColor,
+                    borderColor: incomeColor,
+                    borderWidth: 0,
+                    borderRadius: 6,
+                    borderSkipped: false,
+                    hoverBackgroundColor: incomeColor
+                },
+                {
+                    label: 'Costos',
+                    data: chartPayload.datasets.costos,
+                    backgroundColor: costColor,
+                    borderColor: costColor,
+                    borderWidth: 0,
+                    borderRadius: 6,
+                    borderSkipped: false,
+                    hoverBackgroundColor: costColor
+                },
+                {
+                    label: 'Margen',
+                    data: chartPayload.datasets.margen,
+                    backgroundColor: marginColor,
+                    borderColor: marginColor,
+                    borderWidth: 0,
+                    borderRadius: 6,
+                    borderSkipped: false,
+                    hoverBackgroundColor: marginColor
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            parsing: {
+                xAxisKey: 'x',
+                yAxisKey: 'y'
+            },
+            animation: {
+                duration: 600,
+                easing: 'easeOutCubic'
+            },
+            plugins: {
+                legend: {
+                    labels: {
+                        usePointStyle: true,
+                        color: textColor
+                    }
+                },
+                tooltip: {
+                    backgroundColor: surfaceColor,
+                    titleColor: textColor,
+                    bodyColor: textColor,
+                    borderColor: gridColor,
+                    borderWidth: 1,
+                    callbacks: {
+                        label(context) {
+                            const raw = context.raw;
+                            if (!raw) return '';
+                            const valueText = chartPayload.formatter.format(raw.delta);
+                            if (chartPayload.totals.ingresos > 0) {
+                                return `${context.dataset.label}: ${valueText} (${raw.percent.toFixed(1)}%)`;
+                            }
+                            return `${context.dataset.label}: ${valueText}`;
+                        },
+                        footer() {
+                            if (chartPayload.totals.ingresos <= 0) return '';
+                            return `Margen Bruto %: ${chartPayload.marginPct.toFixed(1)}%`;
+                        }
+                    }
+                },
+                waterfallLabels: {
+                    color: textColor
+                }
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: textColor
+                    },
+                    grid: {
+                        display: false
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: textColor,
+                        callback(value) {
+                            return chartPayload.formatter.format(value);
+                        }
+                    },
+                    grid: {
+                        color: gridColor
+                    },
+                    min: chartPayload.axis.min,
+                    max: chartPayload.axis.max
+                }
+            }
+        },
+        plugins: [waterfallValueLabelsPlugin]
+    });
+}
+  // ============================================================================
+// FUNCIÓN: Renderizar tabla de operaciones
+// ============================================================================
+let currentSort = { column: null, direction: 'asc' };
+  function renderTable() {
+    const wrapper = document.getElementById('tableWrapper');
     
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
-    const rows = data.slice(1);
+    if (filteredData.length === 0) {
+        wrapper.innerHTML = '<div class="loading">No hay datos que coincidan con los filtros</div>';
+        return;
+    }
+      // Ordenar datos si hay una columna seleccionada
+    let sortedData = [...filteredData];
+    if (currentSort.column) {
+        sortedData.sort((a, b) => {
+            let valA = a[currentSort.column];
+            let valB = b[currentSort.column];
+            
+            if (typeof valA === 'string') valA = valA.toLowerCase();
+            if (typeof valB === 'string') valB = valB.toLowerCase();
+            
+            if (valA < valB) return currentSort.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return currentSort.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+      const html = `
+        <table id="operationsTable">
+            <thead>
+                <tr>
+                    <th class="sortable" onclick="sortTable('fecha')">Fecha<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('carpeta')">N° Carpeta<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('contenedor')">Contenedor<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('cliente')">Cliente<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('origen')">Origen<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('destino')">Destino<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('tipoOP')">Tipo OP<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('terciarizado')">Terciarizado<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('totalVenta')">Ingreso<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('totalCostos')">Costo<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('margen')">Margen<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('margenPct')">Margen %<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('horas')">Horas<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('kilometros')">KM<div class="resizer"></div></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${sortedData.map(row => `
+                    <tr>
+                        <td>${formatDate(row.fecha, row.planillaMes || currentMonth)}</td>
+                        <td>${row.carpeta}</td>
+                        <td>${row.contenedor}</td>
+                        <td>${row.cliente}</td>
+                        <td>${row.origen}</td>
+                        <td>${row.destino}</td>
+                        <td>${row.tipoOP}</td>
+                        <td>${row.terciarizado}</td>
+                        <td>${formatCurrency(row.totalVenta)}</td>
+                        <td>${formatCurrency(row.totalCostos)}</td>
+                        <td style="color: ${row.margen >= 0 ? '#10b981' : '#ef4444'}">
+                            ${formatCurrency(row.margen)}
+                        </td>
+                        <td style="color: ${row.margenPct >= 0 ? '#10b981' : '#ef4444'}">
+                            ${row.margenPct.toFixed(1)}%
+                        </td>
+                        <td>${row.horas}</td>
+                        <td>${normalizeKey(row.terciarizado) === 'si' ? 'N/A' : row.kilometros.toFixed(0)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
     
-    Logger.log(`doGet: Hoja "${sheetName}" encontrada, devolviendo ${rows.length} filas de datos`);
+    wrapper.innerHTML = html;
     
-    const json = rows.map(row => {
-      let obj = {};
-      headers.forEach((header, i) => {
-        obj[header] = row[i];
-      });
-      return obj;
+    // Inicializar resize de columnas
+    initColumnResize();
+    
+    // Actualizar indicadores de ordenamiento
+    document.querySelectorAll('th.sortable').forEach(th => {
+        th.classList.remove('sort-asc', 'sort-desc');
     });
     
-    const jsonString = JSON.stringify(json);
-    
-    // Si hay callback, devolver JSONP (evita CORS)
-    const callback = e.parameter.callback;
-    if (callback) {
-      return ContentService.createTextOutput(callback + '(' + jsonString + ')')
-        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    if (currentSort.column) {
+        const th = document.querySelector(`th[onclick="sortTable('${currentSort.column}')"]`);
+        if (th) {
+            th.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
+        }
     }
-    
-    // Si no hay callback, devolver JSON normal
-    return ContentService.createTextOutput(jsonString)
-      .setMimeType(ContentService.MimeType.JSON);
-      
-  } catch (error) {
-    const errorData = JSON.stringify({ error: error.message });
-    const callback = e.parameter.callback;
-    
-    if (callback) {
-      return ContentService.createTextOutput(callback + '(' + errorData + ')')
-        .setMimeType(ContentService.MimeType.JAVASCRIPT);
-    }
-    return ContentService.createTextOutput(errorData)
-      .setMimeType(ContentService.MimeType.JSON);
-  }
 }
+  // ============================================================================
+// FUNCIÓN: Inicializar resize de columnas
+// ============================================================================
+function initColumnResize() {
+    const table = document.getElementById('operationsTable');
+    if (!table) return;
+    
+    const ths = table.querySelectorAll('th');
+    
+    ths.forEach(th => {
+        const resizer = th.querySelector('.resizer');
+        if (!resizer) return;
+        
+        let startX, startWidth;
+        
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startX = e.pageX;
+            startWidth = th.offsetWidth;
+            
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        });
+        
+        function handleMouseMove(e) {
+            const width = startWidth + (e.pageX - startX);
+            if (width > 50) {
+                th.style.width = width + 'px';
+            }
+        }
+        
+        function handleMouseUp() {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        }
+    });
+}
+  // ============================================================================
+// FUNCIÓN: Ordenar tabla por columna
+// ============================================================================
+function sortTable(column) {
+    if (currentSort.column === column) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.column = column;
+        currentSort.direction = 'asc';
+    }
+    renderTable();
+}
+  // ============================================================================
+// FUNCIONES AUXILIARES: Formateo
+// ============================================================================
+function formatCurrency(value, decimals = 0) {
+    const numericValue = toNumber(value);
+    return '$' + numericValue.toLocaleString('en-US', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+    });
+}
+  function parseDate(value, referenceMonth) {
+    if (!value) return null;
+    if (value instanceof Date && !isNaN(value.getTime())) return value;
+      if (typeof value === 'number') {
+        const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+        const parsed = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+        return isNaN(parsed.getTime()) ? null : parsed;
+    }
+      const str = value.toString().trim();
+    if (!str) return null;
+      const isoLike = str.replace(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})(.*)$/,
+        (match, d, m, y, rest) => `${y}-${m}-${d}${rest}`);
+    const parsed = new Date(isoLike);
+    if (!isNaN(parsed.getTime())) return parsed;
+      const parts = str.split(/[\/.-]/).filter(Boolean);
+    if (parts.length === 3) {
+        const [first, second, third] = parts.map(Number);
+        if (third > 999) {
+            const day = first;
+            const month = second - 1;
+            const year = third;
+            const alt = new Date(year, month, day);
+            return isNaN(alt.getTime()) ? null : alt;
+        }
+    }
+      if (parts.length === 2) {
+        const [day, month] = parts.map(Number);
+        if (!isNaN(day) && !isNaN(month)) {
+            let year = new Date().getFullYear();
+            let refMonthNumber = null;
+              if (referenceMonth) {
+                const key = getMonthKeyFromSheet(referenceMonth) || referenceMonth;
+                if (key && key.includes('-')) {
+                    const [yearStr, monthStr] = key.split('-');
+                    const parsedYear = parseInt(yearStr, 10);
+                    const parsedMonth = parseInt(monthStr, 10);
+                    if (!isNaN(parsedYear)) year = parsedYear;
+                    if (!isNaN(parsedMonth)) refMonthNumber = parsedMonth;
+                }
+            }
+              let monthIndex = month - 1;
+            if (isNaN(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+                monthIndex = refMonthNumber !== null ? refMonthNumber - 1 : 0;
+            }
+              if (refMonthNumber !== null) {
+                if (monthIndex === 11 && refMonthNumber === 1) {
+                    year -= 1; // fecha de diciembre para planilla de enero
+                } else if (monthIndex === 0 && refMonthNumber === 12) {
+                    year += 1; // fecha de enero para planilla de diciembre
+                } else if (monthIndex !== refMonthNumber - 1) {
+                    // Si la fecha no coincide con la planilla, mantenemos el año de referencia
+                    monthIndex = refMonthNumber - 1;
+                }
+            }
+              const candidate = new Date(year, monthIndex, day);
+            if (!isNaN(candidate.getTime())) {
+                return candidate;
+            }
+        }
+    }
+      return null;
+}
+  function formatDate(dateStr, referenceMonth) {
+    const date = parseDate(dateStr, referenceMonth);
+    if (!date) return '';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month}`;
+}
+  // ============================================================================
+// EVENT LISTENERS: Búsquedas en tiempo real y cambio de mes
+// ============================================================================
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('searchCarpeta').addEventListener('input', applyFilters);
+    document.getElementById('searchContenedor').addEventListener('input', applyFilters);
+    document.getElementById('filterMes').addEventListener('change', () => {
+        console.log('🔄 Cambio de mes detectado, recargando datos...');
+        // Limpiar búsquedas de texto
+        document.getElementById('searchCarpeta').value = '';
+        document.getElementById('searchContenedor').value = '';
+        // Recargar datos del nuevo mes
+        fetchData();
+    });
+});
+  // ============================================================================
+// INICIALIZACIÓN: Cargar datos al iniciar
+// ============================================================================
+fetchData();
+
