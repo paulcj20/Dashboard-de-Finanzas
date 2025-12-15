@@ -8,22 +8,23 @@
     <style>
         :root {
             color-scheme: light;
-            --color-bg: #f3f5f9;
-            --color-surface: #ffffff;
-            --color-surface-alt: #f7f9fc;
-            --color-border: rgba(15, 23, 42, 0.08);
-            --color-border-strong: rgba(15, 23, 42, 0.14);
-            --color-text-primary: #1f2937;
-            --color-text-muted: #6b7280;
+            --color-bg: #f9fafb;
+            --color-surface: #f1f5ff;
+            --color-surface-alt: #e5ebff;
+            --color-surface-card: #dbe4ff;
+            --color-border: #e2e8f0;
+            --color-border-strong: #cbd5e1;
+            --color-text-primary: #1e293b;
+            --color-text-muted: #64748b;
             --color-accent: #2563eb;
             --color-accent-strong: #1d4ed8;
-            --color-positive: #10b981;
-            --color-negative: #ef4444;
+            --color-positive: #0ea5e9;
+            --color-negative: #f97316;
             --color-warning: #f59e0b;
             --radius-sm: 8px;
             --radius-md: 14px;
-            --shadow-sm: 0 10px 24px rgba(15, 23, 42, 0.08);
-            --shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.12);
+            --shadow-sm: 0 10px 24px rgba(30, 41, 59, 0.08);
+            --shadow-lg: 0 18px 40px rgba(30, 41, 59, 0.12);
             --transition-base: 200ms ease;
         }
 
@@ -69,14 +70,27 @@
 
         /* Header */
         .header {
-            background: linear-gradient(135deg, var(--color-accent) 0%, #60a5fa 100%);
-            color: #ffffff;
-            padding: 34px;
+            position: relative;
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.82) 0%, rgba(37, 99, 235, 0.68) 65%, rgba(191, 219, 254, 0.6) 100%);
+            color: #f8fafc;
+            padding: 38px;
             border-radius: var(--radius-md);
             margin-bottom: 34px;
             box-shadow: var(--shadow-sm);
-            border: 1px solid rgba(255, 255, 255, 0.32);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(12px);
+            overflow: hidden;
             transition: box-shadow var(--transition-base), transform var(--transition-base);
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            inset: -40% -10% auto -10%;
+            height: 150%;
+            background: radial-gradient(circle at top, rgba(226, 232, 240, 0.55), transparent 70%);
+            transform: rotate(6deg);
+            pointer-events: none;
         }
 
         .header:hover {
@@ -112,6 +126,7 @@
         .filters:hover {
             box-shadow: var(--shadow-lg);
             transform: translateY(-2px);
+            background: linear-gradient(180deg, rgba(219, 228, 255, 0.6) 0%, rgba(241, 245, 255, 0.65) 100%);
         }
 
         .filters-header {
@@ -253,7 +268,7 @@
         }
 
         .kpi-card {
-            background: var(--color-surface);
+            background: linear-gradient(170deg, rgba(219, 228, 255, 0.95) 0%, rgba(59, 130, 246, 0.08) 100%);
             padding: 26px;
             border-radius: var(--radius-md);
             box-shadow: var(--shadow-sm);
@@ -268,7 +283,7 @@
         }
 
         .kpi-card.positive {
-            border-left-color: var(--color-positive);
+            border-left-color: var(--color-accent-strong);
         }
 
         .kpi-card.negative {
@@ -291,12 +306,9 @@
             letter-spacing: -0.01em;
         }
 
-        .kpi-value.positive {
-            color: var(--color-positive);
-        }
-
+        .kpi-value.positive,
         .kpi-value.negative {
-            color: var(--color-negative);
+            color: var(--color-text-primary);
         }
 
         /* Charts */
@@ -308,7 +320,7 @@
         }
 
         .chart-container {
-            background: var(--color-surface);
+            background: linear-gradient(170deg, rgba(241, 245, 255, 0.95) 0%, rgba(59, 130, 246, 0.06) 100%);
             padding: 28px;
             border-radius: var(--radius-md);
             box-shadow: var(--shadow-sm);
@@ -329,6 +341,51 @@
             letter-spacing: 0.01em;
         }
 
+        .chart-header-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+
+        .chart-header-row h3 {
+            margin-bottom: 6px;
+        }
+
+        .chart-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .chart-toolbar label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--color-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .chart-toolbar select {
+            padding: 8px 10px;
+            border: 1px solid var(--color-border-strong);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.35);
+            color: var(--color-text-primary);
+            font-size: 13px;
+            backdrop-filter: blur(4px);
+            transition: border-color var(--transition-base), box-shadow var(--transition-base), background var(--transition-base);
+        }
+
+        .chart-toolbar select:focus {
+            outline: none;
+            border-color: var(--color-accent-strong);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+        }
+
         .chart-subtitle {
             color: var(--color-text-muted);
             margin-top: -12px;
@@ -341,9 +398,13 @@
             height: 300px;
         }
 
+        #chartMarginWaterfall {
+            height: 100%;
+        }
+
         /* Tabla */
         .table-container {
-            background: var(--color-surface);
+            background: linear-gradient(170deg, rgba(241, 245, 255, 0.95) 0%, rgba(59, 130, 246, 0.04) 100%);
             padding: 30px;
             border-radius: var(--radius-md);
             box-shadow: var(--shadow-sm);
@@ -615,6 +676,30 @@
                 <p class="chart-subtitle">Ingresos → Terceros → Combustible → Chofer → Margen Bruto</p>
                 <div class="chart-wrapper">
                     <canvas id="chartMarginWaterfall"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header-row">
+                    <div>
+                        <h3>Tarifa cotizada vs Tarifa objetivo (80%) por Corredor</h3>
+                        <p class="chart-subtitle">Objetivo = costo típico (p50) × 1.20</p>
+                    </div>
+                    <div class="chart-toolbar">
+                        <label for="corredorTopSelect">Top</label>
+                        <select id="corredorTopSelect">
+                            <option value="15">Top 15</option>
+                            <option value="30">Top 30</option>
+                            <option value="50">Top 50</option>
+                        </select>
+                        <label for="corredorOrderSelect">Ordenar</label>
+                        <select id="corredorOrderSelect">
+                            <option value="viajes">Mayor volumen</option>
+                            <option value="ventas">Mayor total ventas</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="chart-wrapper" id="corredorChartWrapper">
+                    <canvas id="chartTarifaCorredor"></canvas>
                 </div>
             </div>
         </div>

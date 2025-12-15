@@ -42,6 +42,7 @@ let currentMonth = '';
 let chartMargenMensual = null;
 let chartMargenCliente = null;
 let chartMarginWaterfall = null;
+let chartCorredorTarifa = null;
 // Ajusta este valor para cambiar la tarifa por hora del chofer en el Waterfall.
 const WATERFALL_DEFAULT_COSTO_HORA = 12;
   const MONTH_NAME_MAP = {
@@ -425,6 +426,7 @@ function renderCharts() {
     renderMargenMensualChart(filteredHistoricalData);
     renderMargenClienteChart();
   renderMarginWaterfallChart();
+    renderTarifaVsObjetivoPorCorredor(filteredData);
 }
   // Gráfico de líneas: Evolución mensual del margen bruto
 function renderMargenMensualChart(dataset) {
@@ -779,6 +781,11 @@ function renderMarginWaterfallChart() {
     const canvas = document.getElementById('chartMarginWaterfall');
     if (!canvas) return;
 
+    const wrapper = canvas.parentElement;
+    if (wrapper) {
+        wrapper.style.height = '320px';
+    }
+
     const chartPayload = buildMarginWaterfall(filteredData, {
         costoHoraChofer: WATERFALL_DEFAULT_COSTO_HORA,
         currency: 'USD',
@@ -904,6 +911,308 @@ function renderMarginWaterfallChart() {
             }
         },
         plugins: [waterfallValueLabelsPlugin]
+    });
+}
+
+function computeMedian(values) {
+    if (!Array.isArray(values) || values.length === 0) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 !== 0) {
+        return sorted[mid];
+    }
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function prepareCorredorTarifaDataset(rows) {
+    const corredorMap = new Map();
+
+    rows.forEach(row => {
+        const isTerciarizado = normalizeKey(row.terciarizado) === 'si';
+        if (!isTerciarizado) return;
+
+        const origen = typeof row.origen === 'string' ? row.origen.trim() : (row.origen || '');
+        const destino = typeof row.destino === 'string' ? row.destino.trim() : (row.destino || '');
+        if (!origen || !destino) return;
+
+        const corredor = `${origen} → ${destino}`;
+        if (!corredorMap.has(corredor)) {
+            corredorMap.set(corredor, {
+                corredor,
+                viajes: 0,
+                tarifaCotizadaSum: 0,
+                tarifaCotizadaCount: 0,
+                tarifaCotizadaTotal: 0,
+                ventaTotal: 0,
+                ventaSum: 0,
+                ventaCount: 0,
+                costValues: [],
+                costPositiveCount: 0
+            });
+        }
+
+        const group = corredorMap.get(corredor);
+        group.viajes += 1;
+
+        const venta = Number.isFinite(row.ventaFlete) ? row.ventaFlete : toNumber(row.ventaFlete);
+        if (Number.isFinite(venta)) {
+            group.ventaSum += venta;
+            group.ventaTotal += venta;
+            group.ventaCount += 1;
+        }
+
+        const tarifaCotizada = Number.isFinite(row.costoFletero) ? row.costoFletero : toNumber(row.costoFletero);
+        if (Number.isFinite(tarifaCotizada)) {
+            group.tarifaCotizadaSum += tarifaCotizada;
+            group.tarifaCotizadaTotal += tarifaCotizada;
+            group.tarifaCotizadaCount += 1;
+        }
+
+        const costo = Number.isFinite(row.totalCostos) ? row.totalCostos : toNumber(row.totalCostos);
+        if (Number.isFinite(costo)) {
+            group.costValues.push(costo);
+            if (costo > 0) {
+                group.costPositiveCount += 1;
+            }
+        }
+    });
+
+    return Array.from(corredorMap.values()).map(group => {
+        const ventaPromedio = group.ventaCount > 0 ? (group.ventaSum / group.ventaCount) : 0;
+        const tarifaCotizadaProm = group.tarifaCotizadaCount > 0
+            ? (group.tarifaCotizadaSum / group.tarifaCotizadaCount)
+            : 0;
+
+        const medianCost = computeMedian(group.costValues);
+        const averageCost = group.costValues.length
+            ? group.costValues.reduce((sum, value) => sum + value, 0) / group.costValues.length
+            : 0;
+        const costoTipico = medianCost > 0 ? medianCost : averageCost;
+
+        const tarifaDeseada = ventaPromedio * 0.8;
+        const gap = tarifaCotizadaProm - tarifaDeseada;
+        const gapPct = tarifaDeseada !== 0 ? (gap / tarifaDeseada) : 0;
+        const costCompleteness = group.viajes > 0 ? (group.costPositiveCount / group.viajes) : 0;
+
+        return {
+            corredor: group.corredor,
+            viajes: group.viajes,
+            tarifaCotizadaProm,
+            tarifaCotizadaTotal: group.tarifaCotizadaTotal,
+            ventaPromedio,
+            ventaTotal: group.ventaTotal,
+            costoTipico,
+            tarifaDeseada,
+            gap,
+            gapPct,
+            costCompleteness,
+            costDataIncomplete: costCompleteness < 0.5
+        };
+    }).filter(item => item.viajes > 0);
+}
+
+// Para extender el análisis con nuevos rubros (peajes, mantenimiento, etc.), ajusta
+// prepareCorredorTarifaDataset para considerar los campos adicionales y recalcular la tarifa objetivo.
+function renderTarifaVsObjetivoPorCorredor(rows = [], options = {}) {
+    const canvas = document.getElementById('chartTarifaCorredor');
+    if (!canvas) return;
+
+    const wrapper = canvas.parentElement;
+    const emptyStateClass = 'chart-empty-message';
+    const topSelect = document.getElementById('corredorTopSelect');
+    const orderSelect = document.getElementById('corredorOrderSelect');
+
+    const topN = Number.isFinite(options.topN) ? options.topN : parseInt(topSelect?.value || '15', 10);
+    const orderBy = options.orderBy || (orderSelect?.value || 'viajes');
+    const locale = options.locale || 'es-UY';
+    const currency = options.currency || 'USD';
+    const currencyDigits = options.currencyDigits ?? 0;
+
+    // Ajusta locale/currency para adaptar la moneda del dashboard.
+    const currencyFormatter = new Intl.NumberFormat(locale, {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: currencyDigits,
+        maximumFractionDigits: currencyDigits
+    });
+
+    const percentFormatter = new Intl.NumberFormat(locale, {
+        style: 'percent',
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+    });
+
+    let dataset = prepareCorredorTarifaDataset(rows);
+
+    if (!dataset.length) {
+        if (chartCorredorTarifa) {
+            chartCorredorTarifa.destroy();
+            chartCorredorTarifa = null;
+        }
+        if (wrapper) {
+            wrapper.style.height = '240px';
+            canvas.style.display = 'none';
+            if (!wrapper.querySelector(`.${emptyStateClass}`)) {
+                const placeholder = document.createElement('div');
+                placeholder.className = `loading ${emptyStateClass}`;
+                placeholder.textContent = 'No hay datos de corredores para este período';
+                wrapper.appendChild(placeholder);
+            }
+        }
+        return;
+    }
+
+    if (wrapper) {
+        canvas.style.display = '';
+        const placeholder = wrapper.querySelector(`.${emptyStateClass}`);
+        if (placeholder) {
+            placeholder.remove();
+        }
+    }
+
+    dataset.sort((a, b) => {
+        if (orderBy === 'ventas') {
+            return b.ventaTotal - a.ventaTotal;
+        }
+        return b.viajes - a.viajes;
+    });
+
+    const limit = Number.isFinite(topN) && topN > 0 ? topN : 15;
+    dataset = dataset.slice(0, limit);
+
+    if (wrapper) {
+        const dynamicHeight = Math.max(320, dataset.length * 34);
+        wrapper.style.height = `${dynamicHeight}px`;
+    }
+
+    const styles = getComputedStyle(document.documentElement);
+    const positiveColor = (styles.getPropertyValue('--color-positive') || '#16a34a').trim() || '#16a34a';
+    const negativeColor = (styles.getPropertyValue('--color-negative') || '#dc2626').trim() || '#dc2626';
+    const targetColor = (styles.getPropertyValue('--color-accent-strong') || '#1d4ed8').trim() || '#1d4ed8';
+    const textColor = (styles.getPropertyValue('--color-text-primary') || '#1e293b').trim() || '#1e293b';
+    const gridColor = (styles.getPropertyValue('--color-border') || 'rgba(148, 163, 184, 0.3)').trim() || 'rgba(148, 163, 184, 0.3)';
+    const surfaceColor = (styles.getPropertyValue('--color-surface') || '#ffffff').trim() || '#ffffff';
+
+    const labels = dataset.map(item => item.corredor);
+    const barValues = dataset.map(item => item.tarifaCotizadaProm);
+    const targetValues = dataset.map(item => item.tarifaDeseada);
+    const barColors = dataset.map(item => (item.gap >= 0 ? positiveColor : negativeColor));
+
+    if (chartCorredorTarifa) {
+        chartCorredorTarifa.destroy();
+    }
+
+    chartCorredorTarifa = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                {
+                    type: 'bar',
+                    label: 'Tarifa cotizada',
+                    data: barValues,
+                    backgroundColor: barColors,
+                    borderColor: barColors,
+                    borderWidth: 0,
+                    borderRadius: 6,
+                    borderSkipped: false,
+                    order: 1
+                },
+                {
+                    type: 'line',
+                    label: 'Tarifa objetivo (20%)',
+                    data: targetValues,
+                    borderColor: targetColor,
+                    borderWidth: 2,
+                    pointBackgroundColor: targetColor,
+                    pointBorderColor: targetColor,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    tension: 0.2,
+                    fill: false,
+                    order: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            animation: {
+                duration: 650,
+                easing: 'easeOutCubic'
+            },
+            plugins: {
+                legend: {
+                    labels: {
+                        usePointStyle: true,
+                        color: textColor
+                    }
+                },
+                tooltip: {
+                    backgroundColor: surfaceColor,
+                    titleColor: textColor,
+                    bodyColor: textColor,
+                    borderColor: gridColor,
+                    borderWidth: 1,
+                    callbacks: {
+                        label(context) {
+                            const info = dataset[context.dataIndex];
+                            if (!info) return '';
+                            if (context.dataset.type === 'line') {
+                                return `Tarifa deseada: ${currencyFormatter.format(info.tarifaDeseada)}`;
+                            }
+                            return `Tarifa cotizada: ${currencyFormatter.format(info.tarifaCotizadaProm)}`;
+                        },
+                        afterBody(items) {
+                            if (!items.length) return [];
+                            const info = dataset[items[0].dataIndex];
+                            if (!info) return [];
+                            const lines = [
+                                `Viajes: ${info.viajes}`,
+                                `Venta Flete promedio: ${currencyFormatter.format(info.ventaPromedio)}`,
+                                `Tarifa deseada (80%): ${currencyFormatter.format(info.tarifaDeseada)}`,
+                                `Gap: ${currencyFormatter.format(info.gap)} (${percentFormatter.format(info.gapPct || 0)})`,
+                                `Total ventas: ${currencyFormatter.format(info.ventaTotal)}`,
+                                `Total tarifa cotizada: ${currencyFormatter.format(info.tarifaCotizadaTotal)}`
+                            ];
+                            if (info.costoTipico) {
+                                lines.splice(2, 0, `Costo total típico (p50): ${currencyFormatter.format(info.costoTipico)}`);
+                            }
+                            if (info.costDataIncomplete) {
+                                lines.push('⚠ Datos de costos incompletos');
+                            }
+                            return lines;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: gridColor
+                    },
+                    ticks: {
+                        color: textColor,
+                        callback(value) {
+                            return currencyFormatter.format(value);
+                        }
+                    }
+                },
+                y: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        color: textColor,
+                        callback(value) {
+                            if (typeof value !== 'string') return value;
+                            return value.length > 32 ? `${value.slice(0, 29)}…` : value;
+                        }
+                    }
+                }
+            }
+        }
     });
 }
   // ============================================================================
@@ -1139,6 +1448,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // Recargar datos del nuevo mes
         fetchData();
     });
+    const corredorTopSelect = document.getElementById('corredorTopSelect');
+    if (corredorTopSelect) {
+        corredorTopSelect.addEventListener('change', () => renderTarifaVsObjetivoPorCorredor(filteredData));
+    }
+    const corredorOrderSelect = document.getElementById('corredorOrderSelect');
+    if (corredorOrderSelect) {
+        corredorOrderSelect.addEventListener('change', () => renderTarifaVsObjetivoPorCorredor(filteredData));
+    }
 });
   // ============================================================================
 // INICIALIZACIÓN: Cargar datos al iniciar
