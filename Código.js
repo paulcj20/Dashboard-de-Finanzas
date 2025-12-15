@@ -239,10 +239,11 @@ function fetchData() {
             totalCostos: getNumber(map, 'Total de Costos'),
             totalVenta: getNumber(map, 'Total Venta'),
             get margen() {
-                return this.totalVenta - this.totalCostos;
+                return (this.ventaFlete + this.costosExtra) - this.totalCostos;
             },
             get margenPct() {
-                return this.totalVenta > 0 ? (this.margen / this.totalVenta * 100) : 0;
+                const ingresos = this.ventaFlete + this.costosExtra;
+                return ingresos > 0 ? (this.margen / ingresos * 100) : 0;
             }
         };
           record.horas = computeHoras(record);
@@ -1253,7 +1254,8 @@ let currentSort = { column: null, direction: 'asc' };
                     <th class="sortable" onclick="sortTable('destino')">Destino<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('tipoOP')">Tipo OP<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('terciarizado')">Terciarizado<div class="resizer"></div></th>
-                    <th class="sortable" onclick="sortTable('totalVenta')">Ingreso<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('ventaFlete')">Venta Flete<div class="resizer"></div></th>
+                    <th class="sortable" onclick="sortTable('costosExtra')">Servicios Extra<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('totalCostos')">Costo<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('margen')">Margen<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('margenPct')">Margen %<div class="resizer"></div></th>
@@ -1272,7 +1274,8 @@ let currentSort = { column: null, direction: 'asc' };
                         <td>${row.destino}</td>
                         <td>${row.tipoOP}</td>
                         <td>${row.terciarizado}</td>
-                        <td>${formatCurrency(row.totalVenta)}</td>
+                        <td>${formatCurrency(row.ventaFlete)}</td>
+                        <td>${formatCurrency(row.costosExtra)}</td>
                         <td>${formatCurrency(row.totalCostos)}</td>
                         <td style="color: ${row.margen >= 0 ? '#10b981' : '#ef4444'}">
                             ${formatCurrency(row.margen)}
