@@ -1250,8 +1250,8 @@ let currentSort = { column: null, direction: 'asc' };
                     <th class="sortable" onclick="sortTable('carpeta')">N° Carpeta<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('contenedor')">Contenedor<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('cliente')">Cliente<div class="resizer"></div></th>
-                    <th class="sortable" onclick="sortTable('origen')">Origen<div class="resizer"></div></th>
-                    <th class="sortable" onclick="sortTable('destino')">Destino<div class="resizer"></div></th>
+                    <th class="sortable" data-column="origen" onclick="sortTable('origen')">Origen<div class="resizer"></div></th>
+                    <th class="sortable" data-column="destino" onclick="sortTable('destino')">Destino<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('tipoOP')">Tipo OP<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('terciarizado')">Terciarizado<div class="resizer"></div></th>
                     <th class="sortable" onclick="sortTable('ventaFlete')">Venta Flete<div class="resizer"></div></th>
@@ -1270,8 +1270,8 @@ let currentSort = { column: null, direction: 'asc' };
                         <td>${row.carpeta}</td>
                         <td>${row.contenedor}</td>
                         <td>${row.cliente}</td>
-                        <td>${row.origen}</td>
-                        <td>${row.destino}</td>
+                        <td data-column="origen">${row.origen}</td>
+                        <td data-column="destino">${row.destino}</td>
                         <td>${row.tipoOP}</td>
                         <td>${row.terciarizado}</td>
                         <td>${formatCurrency(row.ventaFlete)}</td>

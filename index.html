@@ -463,6 +463,14 @@
             transition: background var(--transition-base), color var(--transition-base);
         }
 
+        th[data-column="origen"],
+        th[data-column="destino"],
+        td[data-column="origen"],
+        td[data-column="destino"] {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         th:hover {
             background: rgba(37, 99, 235, 0.08);
         }
