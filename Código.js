@@ -936,6 +936,12 @@ function prepareCorredorTarifaDataset(rows) {
         const destino = typeof row.destino === 'string' ? row.destino.trim() : (row.destino || '');
         if (!origen || !destino) return;
 
+        const venta = Number.isFinite(row.ventaFlete) ? row.ventaFlete : toNumber(row.ventaFlete);
+        if (!Number.isFinite(venta) || venta === 0) {
+            // Omitir corredores sin venta declarada
+            return;
+        }
+
         const corredor = `${origen} → ${destino}`;
         if (!corredorMap.has(corredor)) {
             corredorMap.set(corredor, {
@@ -955,12 +961,9 @@ function prepareCorredorTarifaDataset(rows) {
         const group = corredorMap.get(corredor);
         group.viajes += 1;
 
-        const venta = Number.isFinite(row.ventaFlete) ? row.ventaFlete : toNumber(row.ventaFlete);
-        if (Number.isFinite(venta)) {
-            group.ventaSum += venta;
-            group.ventaTotal += venta;
-            group.ventaCount += 1;
-        }
+        group.ventaSum += venta;
+        group.ventaTotal += venta;
+        group.ventaCount += 1;
 
         const tarifaCotizada = Number.isFinite(row.costoFletero) ? row.costoFletero : toNumber(row.costoFletero);
         if (Number.isFinite(tarifaCotizada)) {
