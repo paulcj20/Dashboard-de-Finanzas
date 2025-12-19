@@ -103,6 +103,133 @@ function normalizeKey(key) {
     if (value === null || value === undefined) return '';
     return value.toString().trim().toLowerCase();
 }
+  const dropdownOptionsStore = new Map();
+  function initCustomDropdowns() {
+    document.querySelectorAll('.custom-dropdown').forEach(container => {
+        const toggle = container.querySelector('.dropdown-toggle');
+        if (!toggle) return;
+        toggle.addEventListener('click', event => {
+            if (toggle.disabled) return;
+            event.preventDefault();
+            const isOpen = container.classList.contains('is-open');
+            closeAllDropdowns();
+            if (!isOpen) {
+                container.classList.add('is-open');
+                toggle.setAttribute('aria-expanded', 'true');
+            }
+        });
+        toggle.addEventListener('keydown', event => {
+            if (toggle.disabled) return;
+            if (event.key === ' ' || event.key === 'Enter') {
+                event.preventDefault();
+                toggle.click();
+            }
+            if (event.key === 'Escape') {
+                closeAllDropdowns();
+            }
+        });
+    });
+    document.addEventListener('click', event => {
+        if (!event.target.closest('.custom-dropdown')) {
+            closeAllDropdowns();
+        }
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            closeAllDropdowns();
+        }
+    });
+}
+  function closeAllDropdowns() {
+    document.querySelectorAll('.custom-dropdown.is-open').forEach(container => {
+        container.classList.remove('is-open');
+        const toggle = container.querySelector('.dropdown-toggle');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    });
+}
+  function updateDropdownOptions(id, options, config = {}) {
+    const container = document.querySelector(`[data-dropdown="${id}"]`);
+    const hiddenInput = document.getElementById(id);
+    if (!container || !hiddenInput) return;
+    const menu = container.querySelector('.dropdown-menu');
+    const toggle = container.querySelector('.dropdown-toggle');
+    const label = container.querySelector('.dropdown-label');
+    dropdownOptionsStore.set(id, options);
+    menu.innerHTML = '';
+    if (!options || !options.length) {
+        if (label) label.textContent = 'Sin opciones';
+        hiddenInput.value = '';
+        if (toggle) toggle.disabled = true;
+        return;
+    }
+    if (toggle) toggle.disabled = false;
+    const currentValue = hiddenInput.value;
+    let desiredValue = config.selectedValue;
+    if (desiredValue === undefined) {
+        desiredValue = options.some(option => option.value === currentValue)
+            ? currentValue
+            : (options[0] ? options[0].value : '');
+    }
+    options.forEach(option => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'dropdown-option';
+        button.dataset.value = option.value;
+        button.setAttribute('role', 'option');
+        button.textContent = option.label ?? option.value ?? '';
+        button.addEventListener('click', () => {
+            selectDropdownValue(id, option.value);
+            closeAllDropdowns();
+        });
+        menu.appendChild(button);
+    });
+    selectDropdownValue(id, desiredValue, { silent: true });
+}
+  function selectDropdownValue(id, value, { silent = false } = {}) {
+    const container = document.querySelector(`[data-dropdown="${id}"]`);
+    const hiddenInput = document.getElementById(id);
+    if (!container || !hiddenInput) return;
+    const options = dropdownOptionsStore.get(id) || [];
+    const menu = container.querySelector('.dropdown-menu');
+    const label = container.querySelector('.dropdown-label');
+    const toggle = container.querySelector('.dropdown-toggle');
+    const activeOption = options.find(option => option.value === value)
+        || options[0]
+        || { value: '', label: 'Sin opciones' };
+    hiddenInput.value = activeOption.value ?? '';
+    if (label) label.textContent = activeOption.label ?? activeOption.value ?? '—';
+    if (menu) {
+        menu.querySelectorAll('.dropdown-option').forEach(button => {
+            const isSelected = button.dataset.value === activeOption.value;
+            button.classList.toggle('is-selected', isSelected);
+            button.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+        });
+    }
+    if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    container.classList.remove('is-open');
+    if (!silent) {
+        hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+        hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+}
+  function getDropdownOptions(id) {
+    return dropdownOptionsStore.get(id) || [];
+}
+    const MONTH_DROPDOWN_OPTIONS = [
+        { value: '__all__', label: 'Todos los meses' },
+        { value: 'Oct 25', label: 'Octubre 2025' },
+        { value: 'Nov 25', label: 'Noviembre 2025' },
+        { value: 'Dic 25', label: 'Diciembre 2025' }
+];
+    const TERCIARIZADO_DROPDOWN_OPTIONS = [
+        { value: '', label: 'Todos' },
+        { value: 'Si', label: 'Sí' },
+        { value: 'No', label: 'No' }
+];
+    dropdownOptionsStore.set('filterMes', MONTH_DROPDOWN_OPTIONS);
+    dropdownOptionsStore.set('filterCliente', [{ value: '', label: 'Todos' }]);
+    dropdownOptionsStore.set('filterTipoOP', [{ value: '', label: 'Todos' }]);
+    dropdownOptionsStore.set('filterTerciarizado', TERCIARIZADO_DROPDOWN_OPTIONS);
   // ============================================================================
 // FUNCIÓN: Cargar datos de la API usando JSONP (evita problemas de CORS)
 // ============================================================================
@@ -110,13 +237,22 @@ function fetchData() {
     const selectMes = document.getElementById('filterMes');
     const mesSeleccionado = selectMes ? selectMes.value : '';
     currentMonth = mesSeleccionado;
-      console.log('🔄 fetchData: Iniciando carga de datos para', mesSeleccionado || '(sin seleccionar)');
+
+    const mesLabel = mesSeleccionado === '__all__' ? 'Todos los meses' : (mesSeleccionado || '(sin seleccionar)');
+    console.log('🔄 fetchData: Iniciando carga de datos para', mesLabel);
     console.log('📍 URL_API:', URL_API);
-      if (!mesSeleccionado) {
+
+    if (!mesSeleccionado) {
         console.warn('⚠️ No se ha seleccionado un mes válido.');
         return;
     }
-      requestSheetData(
+
+    if (mesSeleccionado === '__all__') {
+        loadAllMonths();
+        return;
+    }
+
+    requestSheetData(
         mesSeleccionado,
         data => processData(data, mesSeleccionado),
         () => {
@@ -124,6 +260,72 @@ function fetchData() {
                 '<div class="error">Error al cargar datos. Verifica la URL del endpoint.<br>URL: ' + URL_API + '</div>';
         }
     );
+
+    function loadAllMonths() {
+        const months = getAvailableMonths();
+        if (!months.length) {
+            console.warn('⚠️ No hay planillas disponibles para "Todos los meses".');
+            return;
+        }
+
+        const wrapper = document.getElementById('tableWrapper');
+        if (wrapper) {
+            wrapper.innerHTML = '<div class="loading">Cargando todos los meses...</div>';
+        }
+
+        const monthsToLoad = months.filter(month => !historicalData[month]);
+        if (!monthsToLoad.length) {
+            finalizeAggregate();
+            return;
+        }
+
+        let pending = monthsToLoad.length;
+        let errorCount = 0;
+
+        monthsToLoad.forEach(month => {
+            requestSheetData(
+                month,
+                data => {
+                    try {
+                        historicalData[month] = normalizeDataset(data, month);
+                    } catch (normalizationError) {
+                        console.error(`❌ Error al normalizar datos (${month}):`, normalizationError);
+                        delete historicalData[month];
+                        errorCount += 1;
+                    }
+
+                    pending -= 1;
+                    if (pending === 0) finalizeAggregate(errorCount);
+                },
+                () => {
+                    console.error(`❌ Error al cargar datos (${month}).`);
+                    delete historicalData[month];
+                    errorCount += 1;
+                    pending -= 1;
+                    if (pending === 0) finalizeAggregate(errorCount);
+                },
+                { silent: true }
+            );
+        });
+
+        function finalizeAggregate(errors = 0) {
+            const combined = months.flatMap(month => historicalData[month] || []);
+            allData = combined;
+
+            populateFilters();
+            applyFilters();
+
+            if (!combined.length && wrapper) {
+                wrapper.innerHTML = '<div class="loading">No hay datos disponibles para los meses seleccionados.</div>';
+            }
+
+            if (errors > 0) {
+                console.warn(`⚠️ ${errors} planilla(s) no se cargaron correctamente para el modo "Todos los meses".`);
+            }
+
+            console.log('✅ Dashboard cargado exitosamente para todos los meses');
+        }
+    }
 }
   function requestSheetData(sheetName, onSuccess, onError, options = {}) {
     const { silent = false } = options;
@@ -156,12 +358,10 @@ function fetchData() {
     };
       document.body.appendChild(script);
 }
-  function getAvailableMonths() {
-    const select = document.getElementById('filterMes');
-    if (!select) return [];
-    return Array.from(select.options)
-        .map(option => option.value)
-        .filter(Boolean);
+    function getAvailableMonths() {
+        return getDropdownOptions('filterMes')
+                .map(option => option.value)
+                .filter(value => value && value !== '__all__');
 }
   function normalizeMonthToken(name) {
     return normalizeKey(name).slice(0, 3);
@@ -191,6 +391,7 @@ function fetchData() {
     return Object.values(historicalData).flat();
 }
   function preloadAdditionalMonths(selectedMonth) {
+    if (selectedMonth === '__all__') return;
     const months = getAvailableMonths()
         .filter(month => month && month !== selectedMonth && !historicalData[month]);
       if (!months.length) return;
@@ -322,32 +523,25 @@ function fetchData() {
 // FUNCIÓN: Poblar selectores de filtros con opciones únicas
 // ============================================================================
 function populateFilters() {
-    // Limpiar selectores existentes
-    const selectCliente = document.getElementById('filterCliente');
-    selectCliente.innerHTML = '<option value="">Todos</option>';
-    
-    const selectTipoOP = document.getElementById('filterTipoOP');
-    selectTipoOP.innerHTML = '<option value="">Todos</option>';
-    
-    const selectTerciarizado = document.getElementById('filterTerciarizado');
-    selectTerciarizado.value = '';
-    
-    // Clientes únicos
-    const clientes = [...new Set(allData.map(d => d.cliente))].filter(c => c).sort();
-    clientes.forEach(cliente => {
-        const option = document.createElement('option');
-        option.value = cliente;
-        option.textContent = cliente;
-        selectCliente.appendChild(option);
-    });
-      // Tipos de OP únicos
-    const tiposOP = [...new Set(allData.map(d => d.tipoOP))].filter(t => t).sort();
-    tiposOP.forEach(tipo => {
-        const option = document.createElement('option');
-        option.value = tipo;
-        option.textContent = tipo;
-        selectTipoOP.appendChild(option);
-    });
+    const clienteOptions = [{ value: '', label: 'Todos' }]
+        .concat(
+            [...new Set(allData.map(d => d.cliente))]
+                .filter(cliente => cliente)
+                .sort()
+                .map(cliente => ({ value: cliente, label: cliente }))
+        );
+    updateDropdownOptions('filterCliente', clienteOptions);
+
+    const tipoOptions = [{ value: '', label: 'Todos' }]
+        .concat(
+            [...new Set(allData.map(d => d.tipoOP))]
+                .filter(tipo => tipo)
+                .sort()
+                .map(tipo => ({ value: tipo, label: tipo }))
+        );
+    updateDropdownOptions('filterTipoOP', tipoOptions);
+
+    updateDropdownOptions('filterTerciarizado', TERCIARIZADO_DROPDOWN_OPTIONS);
 }
   function getActiveFilters() {
     return {
@@ -355,7 +549,9 @@ function populateFilters() {
         tipoOP: document.getElementById('filterTipoOP').value,
         terciarizado: document.getElementById('filterTerciarizado').value,
         searchCarpeta: normalizeText(document.getElementById('searchCarpeta')?.value),
-        searchContenedor: normalizeText(document.getElementById('searchContenedor')?.value)
+        searchContenedor: normalizeText(document.getElementById('searchContenedor')?.value),
+        searchOrigen: normalizeText(document.getElementById('searchOrigen')?.value),
+        searchDestino: normalizeText(document.getElementById('searchDestino')?.value)
     };
 }
   function matchesFilters(row, filters) {
@@ -364,6 +560,8 @@ function populateFilters() {
     if (filters.terciarizado && row.terciarizado !== filters.terciarizado) return false;
     if (filters.searchCarpeta && !normalizeText(row.carpeta).includes(filters.searchCarpeta)) return false;
     if (filters.searchContenedor && !normalizeText(row.contenedor).includes(filters.searchContenedor)) return false;
+    if (filters.searchOrigen && !normalizeText(row.origen).includes(filters.searchOrigen)) return false;
+    if (filters.searchDestino && !normalizeText(row.destino).includes(filters.searchDestino)) return false;
     return true;
 }
   function filterDataset(dataset, filters) {
@@ -1444,13 +1642,26 @@ function formatCurrency(value, decimals = 0) {
 // EVENT LISTENERS: Búsquedas en tiempo real y cambio de mes
 // ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
+    initCustomDropdowns();
+    const mesHidden = document.getElementById('filterMes');
+    updateDropdownOptions('filterMes', MONTH_DROPDOWN_OPTIONS, {
+        selectedValue: mesHidden ? (mesHidden.value || MONTH_DROPDOWN_OPTIONS[1]?.value) : MONTH_DROPDOWN_OPTIONS[0]?.value
+    });
+    updateDropdownOptions('filterCliente', [{ value: '', label: 'Todos' }]);
+    updateDropdownOptions('filterTipoOP', [{ value: '', label: 'Todos' }]);
+    updateDropdownOptions('filterTerciarizado', TERCIARIZADO_DROPDOWN_OPTIONS);
+
     document.getElementById('searchCarpeta').addEventListener('input', applyFilters);
     document.getElementById('searchContenedor').addEventListener('input', applyFilters);
+    document.getElementById('searchOrigen').addEventListener('input', applyFilters);
+    document.getElementById('searchDestino').addEventListener('input', applyFilters);
     document.getElementById('filterMes').addEventListener('change', () => {
         console.log('🔄 Cambio de mes detectado, recargando datos...');
         // Limpiar búsquedas de texto
         document.getElementById('searchCarpeta').value = '';
         document.getElementById('searchContenedor').value = '';
+        document.getElementById('searchOrigen').value = '';
+        document.getElementById('searchDestino').value = '';
         // Recargar datos del nuevo mes
         fetchData();
     });
